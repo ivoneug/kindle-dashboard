@@ -202,3 +202,66 @@ test('a note shows until it expires', () => {
   assert.equal(ui.note(), 'RAISED x');
   return new Promise((r) => setTimeout(() => { assert.equal(ui.note(), ''); r(); }, 70));
 });
+
+test('Ambient waits for both quiet sessions and two minutes without key presses', () => {
+  let ts = 0;
+  const ui = createUi({ now: () => ts });
+  const quiet = { sessions: [{ state: 'idle' }] };
+  ts = 119_999;
+  assert.equal(ui.syncAmbient(quiet), false);
+  ui.act('screen:usage', portrait);
+  ts += 120_000;
+  assert.equal(ui.syncAmbient(quiet), true);
+  assert.equal(ui.screen, 'ambient');
+  assert.deepEqual(ui.act('allow', portrait), { changed: true, full: true });
+  assert.equal(ui.screen, 'usage', 'wake restores the screen, without answering anything');
+  assert.equal(ui.syncAmbient(quiet), false);
+});
+
+test('working sessions, attention, requests and backend errors prevent Ambient', () => {
+  for (const context of [
+    { sessions: [{ state: 'busy' }] }, { sessions: [{ state: 'attention' }] },
+    { asks: [perm('a')] }, { healthy: false },
+  ]) {
+    let ts = 0;
+    const ui = createUi({ now: () => ts });
+    ts = 200_000;
+    assert.equal(ui.syncAmbient(context), false);
+    ts += 119_999;
+    assert.equal(ui.syncAmbient({}), false, 'quiet delay starts after work stops');
+    ts += 1;
+    assert.equal(ui.syncAmbient({}), true);
+    assert.equal(ui.syncAmbient(context), true, 'new activity wakes immediately');
+    assert.equal(ui.screen, 'sessions');
+  }
+});
+
+test('a permission wakes Ambient to Queue and resolution restores the previous screen', () => {
+  let ts = 0;
+  const ui = createUi({ now: () => ts });
+  ui.act('screen:usage', portrait);
+  ts = 120_000;
+  ui.syncAmbient({});
+  assert.equal(ui.screen, 'ambient');
+  ui.surfaceQueue();
+  assert.equal(ui.screen, 'queue');
+  ui.queueEmptied();
+  assert.equal(ui.screen, 'usage');
+  assert.equal(ui.syncAmbient({}), false);
+});
+
+test('Ambient can be disabled, does not hide diagnostics, and direct screen keys still work', () => {
+  let ts = 0;
+  const disabled = createUi({ ambientAfterMs: 0, now: () => ts });
+  const ui = createUi({ now: () => ts });
+  ui.act('menu', portrait);
+  ts = 200_000;
+  assert.equal(disabled.syncAmbient({}), false);
+  assert.equal(ui.syncAmbient({}), false);
+  ui.act('menu', portrait);
+  ts += 120_000;
+  ui.syncAmbient({});
+  assert.equal(ui.screen, 'ambient');
+  ui.act('screen:queue', portrait);
+  assert.equal(ui.screen, 'queue');
+});

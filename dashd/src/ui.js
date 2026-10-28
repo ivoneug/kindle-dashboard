@@ -15,7 +15,10 @@ export const ARM_MS = 10_000;
 
 const ANSWERS = { allow: 'allow', deny: 'deny', back: 'ask' };
 
-export function createUi() {
+export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
+  let lastInput = now();
+  let quietSince = now();
+  let ambientFrom = null;
   const ui = {
     screen: 'sessions',
     selectedId: null,   // follows the session, not its position, across reorders
@@ -143,6 +146,16 @@ export function createUi() {
   // ctx: { sessions, asks, orientation }. Returns { changed, full, focus?,
   // answer?, note? }.
   function act(action, ctx) {
+    lastInput = now();
+    if (ui.screen === 'ambient') {
+      ui.screen = ambientFrom || 'sessions';
+      ambientFrom = null;
+      // An answer/navigation key first wakes the screen. It cannot act on a
+      // permission or focus a window the reader has not seen yet.
+      if (!action.startsWith('screen:') && action !== 'menu') return { changed: true, full: true };
+      const result = act(action, ctx);
+      return { ...result, changed: true, full: true };
+    }
     switch (action) {
       case 'screen:sessions': return show('sessions');
       case 'screen:queue': return show('queue');
@@ -170,7 +183,9 @@ export function createUi() {
   // A new ask arrived: the queue takes the screen, remembering what it covered.
   function surfaceQueue() {
     if (ui.screen === 'queue') return false;
-    ui.surfacedFrom = ui.screen === 'test' ? 'sessions' : ui.screen;
+    ui.surfacedFrom = ui.screen === 'ambient' ? (ambientFrom || 'sessions') : ui.screen === 'test' ? 'sessions' : ui.screen;
+    ambientFrom = null;
+    quietSince = now();
     ui.screen = 'queue';
     ui.armed = null;
     return true;
@@ -178,6 +193,7 @@ export function createUi() {
 
   // Nothing left to answer: hand the screen back if the queue took it.
   function queueEmptied() {
+    quietSince = now();
     if (ui.screen !== 'queue' || !ui.surfacedFrom) return false;
     ui.screen = ui.surfacedFrom;
     ui.surfacedFrom = null;
@@ -213,7 +229,30 @@ export function createUi() {
     return Date.now() < ui.noteUntil ? ui.note : '';
   }
 
+  function syncAmbient({ sessions = [], asks = [], healthy = true } = {}) {
+    const ts = now();
+    const quiet = healthy && !asks.length && !sessions.some((s) => s.state === 'busy' || s.state === 'attention');
+    if (!quiet) {
+      quietSince = ts;
+      if (ui.screen === 'ambient') {
+        ui.screen = ambientFrom || 'sessions';
+        ambientFrom = null;
+        return true;
+      }
+      return false;
+    }
+    if (ambientAfterMs > 0 && ui.screen !== 'ambient' && ui.screen !== 'test' &&
+        ts - Math.max(quietSince, lastInput) >= ambientAfterMs) {
+      ambientFrom = ui.screen;
+      ui.screen = 'ambient';
+      ui.armed = null;
+      return true;
+    }
+    return false;
+  }
+
   return {
+    syncAmbient,
     act,
     setNote,
     note,

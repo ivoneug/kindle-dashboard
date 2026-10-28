@@ -8,7 +8,7 @@
 import {
   AGENT, PORT, USB_HOST, LAN_HOST, DEVICE_TOKEN, USB_BIND_RETRY_MS, PANEL, ORIENTATION, LANDSCAPE_ROTATE,
   FULL_EVERY, KEEP_FRAMES, LONG_POLL_MS, RENDER_DEBOUNCE_MS, MIN_FRAME_INTERVAL_MS, LINK_ALIVE_MS,
-  CHROME_CHANNEL, CHROME_PATH,
+  CHROME_CHANNEL, CHROME_PATH, AMBIENT_AFTER_MS,
 } from './config.js';
 import { createRenderer } from './renderer.js';
 import { createFrameStore } from './frames.js';
@@ -19,6 +19,7 @@ import { renderSessions } from './screens/sessions.js';
 import { renderUsage } from './screens/usage.js';
 import { renderDetail } from './screens/detail.js';
 import { renderQueue } from './screens/queue.js';
+import { renderAmbient } from './screens/ambient.js';
 import { createUi, ARM_MS } from './ui.js';
 import { createClaude } from './claude/index.js';
 import { createCodex } from './codex/index.js';
@@ -33,7 +34,7 @@ const state = {
   lastPollHost: null,
 };
 
-const ui = createUi();
+const ui = createUi({ ambientAfterMs: AMBIENT_AFTER_MS });
 const frames = createFrameStore({ fullEvery: FULL_EVERY, keep: KEEP_FRAMES });
 const renderer = createRenderer({ channel: CHROME_CHANNEL, executablePath: CHROME_PATH });
 
@@ -60,6 +61,14 @@ function onAgentEvent(topic) {
   if (topic.endsWith('.permission.resolved') || topic.endsWith('.question.resolved')) {
     if (!agent.asks().length && ui.queueEmptied()) return scheduleRender({ full: true, urgent: true });
     return scheduleRender({ urgent: true });
+  }
+  if (ui.screen === 'ambient') {
+    // Metadata still polls, but a quiet clock needs neither a Chrome render
+    // nor a new frame until the minute changes. Real activity wakes at once.
+    if (ui.syncAmbient({ sessions: agent.state.sessions, asks: agent.asks(), healthy: !agent.status().error })) {
+      scheduleRender({ full: true, urgent: true });
+    }
+    return;
   }
   scheduleRender();
 }
@@ -136,6 +145,8 @@ function screen(box) {
     note: ui.note(),
   };
   switch (ui.screen) {
+    case 'ambient':
+      return { html: renderAmbient({ ...view, sessions: sessions.length }, box) };
     case 'queue': {
       const hero = ui.heroOf(asks);
       const armed = !!hero && ui.isArmed(hero.id);
@@ -231,8 +242,9 @@ const handler = createHandler({
     log('KY', `${code}${name ? ' ' + name : ''} v${v}${stale ? ' stale' : ''}${action ? ' → ' + action : ''}${local ? ' (preview)' : ''}`);
     state.keys = [{ code, name, v, stale, action, ts: Date.now() }, ...state.keys].slice(0, 6);
     if (!action) {
+      const r = ui.act('wake', { sessions: agent.state.sessions, asks: agent.asks(), orientation: state.orientation });
       // The test card lists every press; other screens have nothing to show.
-      if (ui.screen === 'test') scheduleRender({ urgent: true });
+      if (r.changed || ui.screen === 'test') scheduleRender({ full: !!r.full, urgent: true });
       return;
     }
     const r = ui.act(action, { sessions: agent.state.sessions, asks: agent.asks(), orientation: state.orientation });
@@ -247,6 +259,7 @@ const handler = createHandler({
   },
   status: () => ({
     ...agent.status(), kindleLinked: linked(), frame: frames.version,
+    screen: ui.screen,
     kindleAddress: state.lastPollAddress,
     kindleTransport: state.lastPollHost ? (state.lastPollHost === LAN_HOST ? 'wifi' : 'usb') : null,
   }),
@@ -287,6 +300,10 @@ tickMinute();
 // now rather than at the ten-minute timeout.
 let wasLinked = false;
 setInterval(() => {
+  const asks = agent.asks();
+  if (ui.syncAmbient({ sessions: agent.state.sessions, asks, healthy: !agent.status().error })) {
+    scheduleRender({ full: true, urgent: true });
+  }
   const now = linked();
   if (wasLinked && !now) {
     const n = agent.releasePermissions('unlinked');

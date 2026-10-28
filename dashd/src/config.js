@@ -58,6 +58,10 @@ export const MIN_FRAME_INTERVAL_MS = Number(pick('DASHD_MIN_FRAME_INTERVAL_MS', 
 // The Kindle counts as connected while it has polled this recently.
 export const LINK_ALIVE_MS = LONG_POLL_MS + 10_000;
 
+// Quiet means no working session or human request. Zero disables auto-Ambient.
+export const AMBIENT_AFTER_MS = Number(pick('DASHD_AMBIENT_AFTER_MS', 'ambientAfterMs', 120_000));
+if (!Number.isFinite(AMBIENT_AFTER_MS) || AMBIENT_AFTER_MS < 0) throw new Error('ambientAfterMs must be nonnegative');
+
 // Headless Chrome for rendering: the installed Google Chrome by default, so
 // there is no separate browser download. An explicit binary wins.
 export const CHROME_CHANNEL = String(pick('DASHD_CHROME_CHANNEL', 'chromeChannel', 'chrome'));
