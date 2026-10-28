@@ -1,6 +1,7 @@
 // dashd: renders e-ink frames on the Mac and serves them to the Kindle K3, and
 // runs the Claude Code side (sessions, permission bridge, usage) in-process.
-// Screens: Sessions and Usage (M2), plus the M1 test card behind MENU. A frame
+// Screens: Sessions with the session detail, Queue and Usage, plus the M1 test
+// card behind MENU. Permissions are answered from the Queue (M3). A frame
 // is rendered on key presses, Claude events and once a minute for the clock,
 // and only sent when it differs from the one on screen.
 
@@ -17,7 +18,8 @@ import { renderTestCard } from './screens/test-card.js';
 import { renderSessions } from './screens/sessions.js';
 import { renderUsage } from './screens/usage.js';
 import { renderDetail } from './screens/detail.js';
-import { createUi } from './ui.js';
+import { renderQueue } from './screens/queue.js';
+import { createUi, ARM_MS } from './ui.js';
 import { createClaude } from './claude/index.js';
 import { MOCK_SESSIONS } from './claude/config.js';
 import { log } from './log.js';
@@ -36,16 +38,27 @@ function linked() {
   return Date.now() - state.lastPollTs < LINK_ALIVE_MS;
 }
 
-// A permission request waits for the Kindle only while one is attached, and
-// only once the Kindle can show and answer it: until the Queue screen and
-// Y/N/Back exist (M3), holding would just block every session for ten
-// minutes. Mock mode always holds — its asks block nobody, and the screens
-// need them to show ATTENTION.
-const KINDLE_ANSWERS_PERMISSIONS = false;
+// A permission request waits for the Kindle only while one is attached; with
+// none, Claude Code shows its own prompt at once. Mock mode always holds — its
+// asks block nobody, and the screens need them.
 const claude = createClaude({
-  onChange: () => scheduleRender(),
-  shouldHold: () => MOCK_SESSIONS || (KINDLE_ANSWERS_PERMISSIONS && linked()),
+  onChange: onClaudeEvent,
+  shouldHold: () => MOCK_SESSIONS || linked(),
 });
+
+// A new ask takes the screen (only worth it when someone can see it); the last
+// one answered gives it back.
+function onClaudeEvent(topic) {
+  if (topic === 'claude.permission.request' || topic === 'claude.question.request') {
+    if ((linked() || MOCK_SESSIONS) && ui.surfaceQueue()) return scheduleRender({ full: true, urgent: true });
+    return scheduleRender({ urgent: true });
+  }
+  if (topic === 'claude.permission.resolved' || topic === 'claude.question.resolved') {
+    if (!claude.asks().length && ui.queueEmptied()) return scheduleRender({ full: true, urgent: true });
+    return scheduleRender({ urgent: true });
+  }
+  scheduleRender();
+}
 
 function layout() {
   return state.orientation === 'landscape'
@@ -87,14 +100,15 @@ async function renderNow() {
     const t0 = Date.now();
     const box = layout();
     lastLinked = linked();
-    const html = screenHtml(box);
+    const { html, meta } = screen(box);
     const frame = await renderer.render(html, box);
     if (ui.screen === 'detail' && frame.meta) ui.setMessagePages(frame.meta);
     // Claude events fire far more often than anything on screen changes; an
     // identical frame would still cost the Kindle a redraw.
     const cur = frames.current();
     if (!full && cur && cur.png.equals(frame.png)) return;
-    const v = frames.publish(frame.png, { full });
+    // meta says which ask this frame shows: a Y/N/Back counts only for that one.
+    const v = frames.publish(frame.png, { full, meta });
     lastFrameTs = Date.now();
     log('FR', `v${v} ${frame.width}×${frame.height} ${(frame.png.length / 1024).toFixed(0)}KB` +
       `${frames.get(v).full ? ' full' : ''} in ${Date.now() - t0}ms`);
@@ -106,37 +120,73 @@ async function renderNow() {
   }
 }
 
-function screenHtml(box) {
+// The frame's HTML, plus what dashd must remember about it.
+function screen(box) {
   const sessions = claude.state.sessions;
+  const asks = claude.asks();
   const view = {
     orientation: state.orientation,
     linked: lastLinked,
-    waiting: claude.asks().length,
+    waiting: asks.length,
     note: ui.note(),
   };
   switch (ui.screen) {
+    case 'queue': {
+      const hero = ui.heroOf(asks);
+      const armed = !!hero && ui.isArmed(hero.id);
+      return {
+        html: renderQueue({ ...view, asks, heroId: hero && hero.id, armed }, box),
+        meta: { askId: hero ? hero.id : null, armed },
+      };
+    }
     case 'detail': {
       const i = sessions.findIndex((s) => s.id === ui.selectedId);
       const d = i >= 0 ? claude.detail(sessions[i].id) : null;
       if (!d) {
         // The session went away under the detail screen.
         ui.leaveDetail();
-        return screenHtml(box);
+        return screen(box);
       }
-      return renderDetail({ ...view, session: d, index: i, total: sessions.length, msgPage: ui.msgPage }, box);
+      return { html: renderDetail({ ...view, session: d, index: i, total: sessions.length, msgPage: ui.msgPage }, box) };
     }
     case 'usage':
-      return renderUsage({ ...view, usage: claude.state.usage }, box);
+      return { html: renderUsage({ ...view, usage: claude.state.usage }, box) };
     case 'test':
-      return renderTestCard({ ...state, ...view, claude: { sessions: sessions.length, asks: view.waiting } }, box);
+      return { html: renderTestCard({ ...state, ...view, claude: { sessions: sessions.length, asks: view.waiting } }, box) };
     default:
-      return renderSessions({
-        ...view,
-        sessions,
-        details: claude.state.details,
-        selected: ui.selectedIndex(sessions),
-      }, box);
+      return {
+        html: renderSessions({
+          ...view,
+          sessions,
+          details: claude.state.details,
+          selected: ui.selectedIndex(sessions),
+        }, box),
+      };
   }
+}
+
+const DONE = { allow: 'ALLOWED', deny: 'DENIED', ask: 'SENT TO THE MAC' };
+
+// Y / N / Back on the queue. The press counts only if the frame it was pressed
+// on (v) showed this very ask — anything else means the screen changed under
+// the finger, and the answer could land on the wrong request. A destructive
+// allow needs a second Y, pressed on the frame that asks for it.
+function answerAsk({ id, decision, destructive }, v) {
+  const shown = frames.get(v);
+  if (!shown || !shown.meta || shown.meta.askId !== id) {
+    log('PB', `key on v${v} ignored: that frame did not show ${id}`);
+    showNote('SCREEN CHANGED — LOOK AGAIN');
+    return;
+  }
+  if (decision === 'allow' && destructive && !(shown.meta.armed && ui.isArmed(id))) {
+    ui.arm(id);
+    scheduleRender({ urgent: true });
+    setTimeout(() => scheduleRender({ urgent: true }), ARM_MS + 100);
+    return;
+  }
+  ui.disarm();
+  const ok = claude.answerPermission(id, decision);
+  showNote(ok ? DONE[decision] : 'ALREADY ANSWERED');
 }
 
 // A footer note lasts a few seconds; the frame after it expires drops it.
@@ -176,8 +226,10 @@ const handler = createHandler({
       if (ui.screen === 'test') scheduleRender({ urgent: true });
       return;
     }
-    const r = ui.act(action, { sessions: claude.state.sessions, orientation: state.orientation });
+    const r = ui.act(action, { sessions: claude.state.sessions, asks: claude.asks(), orientation: state.orientation });
     if (r.focus) raiseTerminal(r.focus);
+    if (r.answer) answerAsk(r.answer, v);
+    if (r.note) showNote(r.note);
     if (r.changed || ui.screen === 'test') scheduleRender({ full: !!r.full, urgent: true });
   },
   onHook: (event, payload, res) => claude.onHook(event, payload, res),

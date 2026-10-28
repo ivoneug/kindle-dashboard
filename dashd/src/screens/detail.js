@@ -1,6 +1,7 @@
 // Session detail, after claude-thing's session-detail screen: who and where,
-// what it is doing, context and tokens, and the last message in full — paged,
-// not scrolled, because e-ink redraws a page cleanly and a scroll badly.
+// what it is doing right now, context and tokens, then its task list and the
+// last message in full — paged, not scrolled, because e-ink redraws a page
+// cleanly and a scroll badly.
 //
 // The message is laid out in CSS columns one box wide, so each column is a
 // page; window.__layout() (called by the renderer once fonts are in) counts
@@ -29,7 +30,9 @@ const CSS = `
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .dmeta { font-family: var(--mono); font-size: 15px; color: var(--ink-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.activity { font-family: var(--mono); font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.activity { display: flex; gap: 12px; align-items: flex-start; font-family: var(--mono); font-size: 17px; line-height: 1.3; }
+.activity .t { flex: 1; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.activity .e { flex-shrink: 0; }
 .activity.ask { display: inline-block; align-self: flex-start; padding: 0 8px; background: var(--ink); color: var(--paper);
   font-family: var(--sans); font-weight: 700; letter-spacing: 0.12em; line-height: 28px; }
 
@@ -52,6 +55,13 @@ const CSS = `
   font-family: "Helvetica Neue", Arial, sans-serif; font-weight: 400;
   font-size: 18px; line-height: 1.42; overflow-wrap: anywhere; }
 .msgcols.none { color: var(--muted); }
+.msgcols .sec { font-family: var(--sans); font-weight: 700; font-size: 14px; letter-spacing: 0.16em; margin: 0 0 6px; }
+.msgcols .sec + .plan { margin-top: 0; }
+.msgcols .plan { list-style: none; padding: 0; margin: 0 0 16px; font-size: 17px; }
+.msgcols .plan li { display: flex; gap: 10px; margin: 4px 0; }
+.msgcols .plan .m { flex-shrink: 0; width: 18px; text-align: center; }
+.msgcols .plan .completed { color: var(--muted); }
+.msgcols .plan .in_progress { font-weight: 700; }
 /* The Markdown of a reply, in e-ink terms: square bullets, code on a light
    wash or behind a heavy rule, nothing thinner than 2px. */
 .msgcols > :first-child { margin-top: 0; }
@@ -74,6 +84,9 @@ const CSS = `
 /* Keep a table, a code block or a list item on one page where it fits. */
 .msgcols table, .msgcols pre, .msgcols li { break-inside: avoid; }
 .msgcols h1, .msgcols h2, .msgcols h3, .msgcols h4 { break-after: avoid; }
+/* A bold line on its own is how Claude writes a subheading: keep it with what
+   follows instead of stranding it at the foot of a page. */
+.msgcols p:has(> strong:only-child) { break-after: avoid; }
 `;
 
 function fmtTokens(n) {
@@ -83,8 +96,20 @@ function fmtTokens(n) {
   return String(n);
 }
 
+// Minutes only: a seconds counter would change every frame, and every frame
+// costs the Kindle a redraw.
+function since(ts, now) {
+  return ts && now - ts >= 60_000 ? fmtDuration(now - ts) : '';
+}
+
 function activity(d, now) {
   if (d.pendingPermission) return '<div class="activity ask">NEEDS YOUR ANSWER</div>';
+  // The running call, as the Claude app words it under its task list; how long
+  // it has run sits apart so a long description cannot push it off.
+  if (d.activity) {
+    return '<div class="activity"><span class="t">▶ ' + esc(d.activity) + '</span>' +
+      '<span class="e">' + since(d.activityTs, now) + '</span></div>';
+  }
   let text;
   if (d.currentTool) text = d.currentTool + ' — working';
   else if (d.state === 'celebrate' && d.lastActivityTs) text = 'finished ' + fmtDuration(now - d.lastActivityTs) + ' ago';
@@ -141,10 +166,22 @@ export function renderDetail(view, { width, height }) {
     '<div class="stat"><div class="v">' + fmtTokens(d.cacheRead) + '</div><div class="k">CACHE READ</div></div>' +
     '</div></div>';
 
-  const msg = '<div class="msg"><div class="msghead"><span class="label">LAST MESSAGE</span>' +
-    '<span class="pg" id="pg"></span></div>' +
-    '<div class="msgbox"><div class="msgcols' + (message ? '' : ' none') + '" id="msg" data-page="' + (view.msgPage || 0) + '">' +
-    (message ? renderMarkdown(message) : 'nothing yet') + '</div></div></div>';
+  // The task list rides in the paged box ahead of the message, so a long one
+  // pages like everything else.
+  const plan = d.plan || [];
+  const done = plan.filter((p) => p.status === 'completed').length;
+  const MARK = { completed: '✓', in_progress: '▶', pending: '○' };
+  const planHtml = plan.length
+    ? '<ul class="plan">' +
+      plan.map((p) => '<li class="' + p.status + '"><span class="m">' + MARK[p.status] + '</span><span>' +
+        esc(p.content) + '</span></li>').join('') + '</ul>' +
+      (message ? '<div class="sec">LAST MESSAGE</div>' : '')
+    : '';
+  const msg = '<div class="msg"><div class="msghead"><span class="label">' +
+    (plan.length ? 'PLAN · ' + done + '/' + plan.length : 'LAST MESSAGE') +
+    '</span><span class="pg" id="pg"></span></div>' +
+    '<div class="msgbox"><div class="msgcols' + (message || plan.length ? '' : ' none') + '" id="msg" data-page="' + (view.msgPage || 0) + '">' +
+    planHtml + (message ? renderMarkdown(message) : (plan.length ? '' : 'nothing yet')) + '</div></div></div>';
 
   const html = '<div class="screen">' +
     topbar('SESSION', { count: (view.index + 1) + '/' + view.total, linked: view.linked, waiting: view.waiting }) +

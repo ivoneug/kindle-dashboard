@@ -7,6 +7,7 @@ import { isOwnSession } from '../own-sessions.js';
 import { lookupSession } from '../focus.js';
 import { log } from '../log.js';
 import { LAST_MESSAGE_CAP } from '../config.js';
+import { describeTool } from './activity.js';
 
 // A prompt that is one tag-wrapped block from start to end — <task-notification>
 // …</task-notification>, <command-name>…, <system-reminder>… — is Claude Code
@@ -85,7 +86,11 @@ export function startHooksSource({ store, queue }) {
         if (queue) queue.onQuestionAnswered(payload);
         break;
       case 'PreToolUse':
-        store.touch(id, { ...base, currentTool: payload.tool_name || null, stoppedTs: null, waitingForInput: false, thinking: true });
+        store.touch(id, {
+          ...base, currentTool: payload.tool_name || null, stoppedTs: null, waitingForInput: false, thinking: true,
+          // dashd: the line the Claude app shows under its task list.
+          activity: describeTool(payload.tool_name, payload.tool_input || {}), activityTs: Date.now(),
+        });
         // A multiple-choice question is a tool call, so this is where the
         // device learns about it — no hook can answer one, only surface it.
         if (queue && payload.tool_name === 'AskUserQuestion') {
@@ -94,7 +99,7 @@ export function startHooksSource({ store, queue }) {
         }
         break;
       case 'PostToolUse':
-        store.touch(id, { ...base, currentTool: null });
+        store.touch(id, { ...base, currentTool: null, activity: null });
         // ExitPlanMode completing means the plan dialog was answered — the
         // plan ask came in through the permission bridge, but resolves here.
         if (queue && (payload.tool_name === 'AskUserQuestion' || payload.tool_name === 'ExitPlanMode')) {
@@ -107,7 +112,7 @@ export function startHooksSource({ store, queue }) {
         // attention win the state machine's first test, so every completed turn
         // rendered ATTENTION forever instead of DONE decaying to IDLE. Reserve
         // waitingForInput for real blocks: permission asks and AskUserQuestion.
-        store.touch(id, { ...base, stoppedTs: Date.now(), currentTool: null, waitingForInput: false, thinking: false });
+        store.touch(id, { ...base, stoppedTs: Date.now(), currentTool: null, activity: null, waitingForInput: false, thinking: false });
         // The turn ending also ends any dialog we still hold an ask for.
         if (queue) queue.onQuestionAnswered(payload);
         break;

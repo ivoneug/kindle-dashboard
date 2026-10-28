@@ -82,6 +82,10 @@ export function createStore() {
       currentTool: s.currentTool || null,
       lastMessage: (s.lastMessage || '').slice(0, LAST_MESSAGE_CAP),
       permission: s.permission || null,
+      // dashd: the session's task list and the running tool call's line.
+      plan: s.plan || [],
+      activity: s.activity || null,
+      activityTs: s.activityTs || null,
     };
   }
 

@@ -16,6 +16,7 @@ It covers session discovery (hooks, `claude agents --json` polling, transcript t
 - **`focus.js`:** a session inside the Claude desktop app (no tty) raises the app with `open -a Claude` instead of failing with "session has no tty".
 - **Last message:** kept up to `LAST_MESSAGE_CAP` (4000) characters instead of 200, and taken from assistant records only (user-side records carry text blocks too), for the detail screen.
 - **`source-hooks.js`:** machine-made prompts (a single tag-wrapped block such as `<task-notification>`) do not become `lastMessage` or `lastPrompt`.
+- **Activity** ([sessions/activity.js](sessions/activity.js)), new: each session's task list is rebuilt from its plan tool calls in the transcript (`update_plan` and `wrap_up` from the Claude app, `TodoWrite` from the terminal). The running tool call's description comes from `PreToolUse`. Both are in `SessionDetail` as `plan`, `activity` and `activityTs`.
 - **Hook scripts** (`dashd/scripts/install-hooks.js`, `uninstall-hooks.js`) point at dashd's port and refuse to install next to claude-thing's own hooks.
 
 Tests are in `dashd/test/claude/`, unchanged except for import paths. The Kindle changes are covered by `dashd/test/kindle-hold.test.js`.

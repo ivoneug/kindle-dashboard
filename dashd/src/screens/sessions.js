@@ -62,6 +62,8 @@ const CSS = `
 // first, then what it is doing, then how long ago it finished.
 function subline(s, d, now) {
   if (s.pendingPermission) return 'needs your answer';
+  // What the Claude app shows under its task list: the running call's own words.
+  if (d && d.activity) return '▶ ' + d.activity;
   if (d && d.currentTool) return d.currentTool + (d.lastMessage ? ' · ' + d.lastMessage : '');
   if (s.state === 'celebrate' && s.lastActivityTs) return 'finished ' + fmtDuration(now - s.lastActivityTs) + ' ago';
   if (d && d.lastMessage) return d.lastMessage;

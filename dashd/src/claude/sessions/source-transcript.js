@@ -3,6 +3,7 @@
 
 import fs from 'node:fs';
 import { LAST_MESSAGE_CAP } from '../config.js';
+import { applyPlanCall } from './activity.js';
 
 export function startTranscriptTail({ store, sessionId, transcriptPath, onInterrupt }) {
   let offset = 0;
@@ -59,6 +60,20 @@ export function startTranscriptTail({ store, sessionId, transcriptPath, onInterr
       const text = content.filter((c) => c && c.type === 'text' && c.text).map((c) => c.text).join(' ');
       const fromClaude = obj.type === 'assistant' || msg.role === 'assistant';
       if (text && fromClaude) fields.lastMessage = text.slice(0, LAST_MESSAGE_CAP);
+      // dashd: the session's task list, from its own plan tool calls. Only
+      // assistant records: the Claude app logs each call a second time inside
+      // an api-request-blob record, and a delta ({advance}) applied twice
+      // would skip a step.
+      if (obj.type === 'assistant') {
+        let plan = (store.raw(sessionId) || {}).plan;
+        let changed = false;
+        for (const c of content) {
+          if (!c || c.type !== 'tool_use') continue;
+          const next = applyPlanCall(plan, c.name, c.input || {});
+          if (next) { plan = next; changed = true; }
+        }
+        if (changed) fields.plan = plan;
+      }
       // Esc in the terminal kills any open dialog but fires no hook at all —
       // no PostToolUse, no Stop. The transcript's interrupt marker is the only
       // signal that a pending ask just died, so it is surfaced with the line's
