@@ -1,0 +1,67 @@
+# Kindle Dashboard
+
+HUD для Claude Code на Kindle Keyboard (K3). Спецификация и ресерч: [kindle-dashboard.md](kindle-dashboard.md).
+
+Kindle работает как тонкий клиент: забирает готовый PNG с Mac, выводит его через `eips` и отправляет сырые нажатия клавиш. Вся логика, вёрстка и раскладка клавиш живут на Mac в `dashd`.
+
+```
+dashd/                Mac: рендер (headless Chrome → 16 оттенков серого) + HTTP API для Kindle
+  src/screens/        экраны (пока тестовый экран M1)
+  src/theme/          e-ink тема; fonts.css извлекается из claude-thing (npm run fonts)
+  src/keys.js         сырой код клавиши → действие (заполнить после discovery)
+kindle/dash/          Kindle: копируется в /mnt/us/dash
+  config.sh           адрес dashd, флаги eips, клавиша выхода
+  client.sh           long-poll /version → /frame.png → eips
+  keys.sh             waitforkey → /key
+  start.sh / stop.sh  захватить экран / вернуть штатный UI
+  discovery.sh        M0: сбор фактов об устройстве и кодов клавиш
+scripts/kindle-deploy.sh   копирует kindle/dash на Kindle (через USB-диск или ssh)
+```
+
+## dashd
+
+```bash
+cd dashd && npm install
+npm start
+```
+
+Нужен установленный Google Chrome: `playwright-core` использует его как headless-рендерер, отдельный браузер не скачивается. Слушает `127.0.0.1:8765` и адрес Mac на USB-линке (`192.168.2.1`). Пока кабеля нет, этого адреса не существует, и `dashd` повторяет попытку каждые 5 с. На `0.0.0.0` не слушает никогда.
+
+Предпросмотр: http://127.0.0.1:8765/. Там текущий кадр в том виде, в каком его получает Kindle, переключатель ориентации и симуляция нажатий. Доступен только с loopback.
+
+Настройки берутся из `dashd/.config.json` (переменные окружения `DASHD_*` имеют приоритет), см. [config.js](dashd/src/config.js):
+
+```json
+{ "usbHost": "192.168.2.1", "orientation": "portrait", "landscapeRotate": 90 }
+```
+
+Тесты: `npm test`. В том числе проверяется, что кадры имеют PNG `color_type 0`, иначе `eips` их не покажет.
+
+## M0: связь с Kindle
+
+**Адреса USB-сети: Kindle `192.168.2.2`, Mac `192.168.2.1`.** Это заводские значения USBNetwork для K3, на устройстве их менять не нужно. Адреса `192.168.1.1/.2` из старых гайдов не подходят: домашняя сеть Mac находится в `192.168.1.0/24`. Если меняешь адреса, поправь их в трёх местах: `/mnt/us/usbnet/etc/config` на Kindle, `kindle/dash/config.sh` (`DASH_HOST`) и `usbHost` у dashd.
+
+1. Подключи Kindle по USB как диск. Если USBNetwork не установлен (нет `/Volumes/Kindle/usbnet/`), возьми `kindle-usbnetwork-0.57.N-k3.zip` из темы https://www.mobileread.com/forums/showthread.php?t=88004. Положи в корень Kindle `.bin` для своей модели **с именем в нижнем регистре** (`update_usbnetwork_0.57.N_k3w_install.bin`): старый джейлбрейк 0.7.N сверяет имя со своим белым списком с учётом регистра. Затем Menu → Settings → Menu → Update Your Kindle. В `usbnet/etc/config` по умолчанию `KINDLE_IP=192.168.2.2` и `HOST_IP=192.168.2.1`.
+2. Скопируй скрипты, пока Kindle смонтирован как диск:
+   ```bash
+   ./scripts/kindle-deploy.sh
+   ```
+3. Извлеки диск и отключи кабель. На Kindle нажми `Del` (откроется строка поиска) и введи `;debugOn`, затем `~usbNetwork`, затем `;debugOff`. Подключи кабель.
+4. На Mac появится интерфейс «RNDIS/Ethernet Gadget» (`en10`). Назначь ему адрес вручную: System Settings → Network → RNDIS/Ethernet Gadget → Details → TCP/IP → Manually, `192.168.2.1` / `255.255.255.0`, поле Router пустое.
+5. Один раз поставь SSH-ключ. На запрос пароля нажми Enter: по USB dropbear пускает root с любым паролем.
+   ```bash
+   ./scripts/kindle-ssh-setup.sh
+   ```
+   Дальше вход без пароля: `./scripts/kindle-ssh.sh` (оболочка) или `./scripts/kindle-ssh.sh '<команда>'`. Ключ лежит в `~/.ssh/kindle_k3`.
+6. На Kindle запусти discovery (через `./scripts/kindle-ssh.sh`). Скрипт интерактивный: он выводит тестовый PNG и по очереди просит нажать каждую клавишу.
+   ```sh
+   sh /mnt/us/dash/discovery.sh
+   ```
+   Результат сохраняется в `/mnt/us/dash/discovery.txt`. Его нужно перенести в §10 спецификации, а коды клавиш — в `dashd/src/keys.js` и `KEY_EXIT` в `kindle/dash/config.sh`.
+7. Обратно в режим диска: на Kindle снова `;debugOn`, `~usbNetwork`, `;debugOff` (команда работает как переключатель).
+
+## M1: труба
+
+На Mac запусти `cd dashd && npm start`, на Kindle — `sh /mnt/us/dash/start.sh`. На экране должен появиться тестовый экран. Нажатие любой клавиши показывает её сырой код в блоке LAST KEY на следующем кадре. Выход: `sh /mnt/us/dash/stop.sh` по ssh, после discovery также клавиша `Home`.
+
+Сравнить ориентации можно кнопками portrait/landscape на странице предпросмотра: кадр сразу уходит на Kindle.

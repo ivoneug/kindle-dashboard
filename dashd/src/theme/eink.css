@@ -1,0 +1,135 @@
+/* e-ink adaptation of claude-thing's instrument-cluster look
+   (kindle-dashboard.md §7.1). Paper and ink instead of warm oxide; the one
+   saturated-colour rule — colour means "a human is needed" — becomes
+   inversion: a black block means the same thing a coloured one did.
+   Rendered by modern headless Chrome, so no Chrome 69 budget here. No
+   animation, no hairlines (2px minimum), nothing under 14px. */
+
+:root {
+  --paper: #ffffff;
+  --ink: #000000;
+  --ink-2: #222222;   /* labels */
+  --ink-3: #444444;   /* body */
+  --muted: #666666;   /* meta */
+  --faint: #999999;
+  --wash: #dddddd;    /* tracks, quiet fills */
+  --rule: 2px solid var(--ink);
+  --rule-light: 2px solid var(--faint);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+}
+
+.screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mono { font-family: "JetBrains Mono", Menlo, monospace; }
+
+/* ---- top bar: mark · caps title · count · clock · link lamp ---- */
+.topbar {
+  height: 52px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  border-bottom: var(--rule);
+}
+.topbar .mark { width: 14px; height: 14px; margin-right: 12px; background: var(--ink); }
+.topbar .title { font-weight: 700; font-size: 22px; letter-spacing: 0.2em; }
+.topbar .tcount { margin-left: 12px; font-weight: 700; font-size: 22px; color: var(--muted); }
+.topbar .spacer { flex: 1; }
+.topbar .clock { font-family: "JetBrains Mono", Menlo, monospace; font-size: 22px; }
+/* link lamp: filled = Kindle polling, hollow = not heard from */
+.topbar .conn {
+  width: 14px; height: 14px; margin-left: 14px;
+  border-radius: 50%; border: 2px solid var(--ink);
+}
+.topbar .conn.ok { background: var(--ink); }
+
+/* ---- engraved section label ---- */
+.label {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  color: var(--ink-2);
+}
+
+/* ---- key legend footer: keycaps instead of touch chips ---- */
+.legend {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 52px;
+  padding: 0 18px;
+  border-top: var(--rule);
+  font-size: 17px;
+  letter-spacing: 0.08em;
+}
+.legend .item { display: flex; align-items: center; gap: 8px; }
+.key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 7px;
+  border: 2px solid var(--ink);
+  border-radius: 5px;
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-weight: 400;
+  font-size: 16px;
+}
+.legend .spacer { flex: 1; }
+.legend .meta { font-family: "JetBrains Mono", Menlo, monospace; font-size: 14px; color: var(--muted); letter-spacing: 0; }
+
+/* ---- hazard band: carries over to b/w as-is ---- */
+.hazard {
+  height: 14px;
+  background: repeating-linear-gradient(-45deg, var(--ink) 0 10px, var(--paper) 10px 20px);
+}
+
+/* ---- context meter: label inverts inside the fill ---- */
+.ctxtrack {
+  position: relative;
+  height: 26px;
+  border: var(--rule);
+  background: var(--paper);
+  overflow: hidden;
+}
+.ctxtrack.hot { border-width: 4px; }
+.ctxtext {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  white-space: nowrap;
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+}
+.ctxfill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  overflow: hidden;
+  background: var(--ink);
+}
+.ctxfill .ctxtext { color: var(--paper); }

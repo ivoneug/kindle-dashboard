@@ -1,0 +1,19 @@
+{
+  "name": "kindle-dashd",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mac bridge for the Kindle K3 dashboard: renders e-ink frames and serves them to the Kindle over plain HTTP",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "fonts": "node scripts/extract-fonts.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "playwright-core": "^1.64.1",
+    "pngjs": "^7.0.0"
+  }
+}

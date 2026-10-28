@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>dashd preview</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 24px; font: 14px -apple-system, system-ui, sans-serif; display: flex; gap: 32px; align-items: flex-start; }
+  /* The Kindle's frame as the Kindle gets it: panel orientation, 1:1 pixels. */
+  #frame { border: 12px solid #2b2b2b; border-radius: 10px; background: #fff; image-rendering: pixelated; display: block; }
+  aside { display: flex; flex-direction: column; gap: 14px; min-width: 280px; }
+  fieldset { border: 1px solid #8884; border-radius: 8px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+  legend { padding: 0 4px; opacity: .7; }
+  button { font: 13px ui-monospace, Menlo, monospace; padding: 5px 9px; }
+  input { font: 13px ui-monospace, Menlo, monospace; padding: 5px; width: 120px; }
+  #meta { font: 12px ui-monospace, Menlo, monospace; white-space: pre; opacity: .8; }
+</style>
+</head>
+<body>
+<img id="frame" alt="current frame">
+<aside>
+  <fieldset>
+    <legend>Orientation</legend>
+    <button data-orientation="portrait">portrait</button>
+    <button data-orientation="landscape">landscape</button>
+    <button id="refresh">full refresh</button>
+  </fieldset>
+  <fieldset>
+    <legend>Simulate a key (sent with the version on screen)</legend>
+    <input id="code" placeholder="raw code">
+    <button id="send">send</button>
+  </fieldset>
+  <div id="meta"></div>
+</aside>
+<script>
+  // Behaves like kindle/dash/client.sh: long-poll /version, fetch the frame.
+  let v = 0;
+  const img = document.getElementById('frame');
+  const meta = document.getElementById('meta');
+
+  async function poll() {
+    for (;;) {
+      try {
+        const r = await fetch('/version?since=' + v);
+        const [n, flag] = (await r.text()).trim().split(' ');
+        if (n !== String(v)) {
+          img.src = '/frame.png?v=' + n;
+          v = Number(n);
+          meta.textContent = 'v' + v + (flag ? ' (' + flag + ')' : '');
+          showState();
+        }
+      } catch (e) {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }
+
+  async function showState() {
+    const s = await (await fetch('/dev/state')).json();
+    meta.textContent = JSON.stringify(s, null, 2);
+  }
+
+  document.querySelectorAll('[data-orientation]').forEach((b) => {
+    b.onclick = () => fetch('/dev/set?orientation=' + b.dataset.orientation);
+  });
+  document.getElementById('refresh').onclick = () => fetch('/dev/refresh');
+  const send = () => {
+    const code = document.getElementById('code').value.trim();
+    if (code) fetch('/key?code=' + encodeURIComponent(code) + '&v=' + v);
+  };
+  document.getElementById('send').onclick = send;
+  document.getElementById('code').onkeydown = (e) => { if (e.key === 'Enter') send(); };
+  poll();
+</script>
+</body>
+</html>

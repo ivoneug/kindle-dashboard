@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashd",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "dashd", "start"],
+      "port": 8765
+    }
+  ]
+}
