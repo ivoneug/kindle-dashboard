@@ -10,7 +10,10 @@
   "scripts": {
     "start": "node src/index.js",
     "fonts": "node scripts/extract-fonts.js",
-    "test": "node --test \"test/*.test.js\""
+    "test": "CLAUDE_THING_HOLD_MS=200 node --test \"test/*.test.js\" \"test/claude/*.test.js\"",
+    "install-hooks": "node scripts/install-hooks.js",
+    "uninstall-hooks": "node scripts/uninstall-hooks.js",
+    "mock": "CLAUDE_THING_MOCK=1 node src/index.js"
   },
   "dependencies": {
     "playwright-core": "^1.64.1",

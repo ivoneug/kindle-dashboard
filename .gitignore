@@ -2,3 +2,4 @@
 node_modules/
 dashd/.config.json
 kindle/dash/test.png
+.state/

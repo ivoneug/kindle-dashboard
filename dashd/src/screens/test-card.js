@@ -93,7 +93,10 @@ export function renderTestCard(state, { width, height }) {
     '<div class="attn"><span class="t">ATTENTION</span><span class="bang">!</span></div>' +
     contextMeter(0.42) + contextMeter(0.86) +
     '</div>';
-  const meta = 'v' + state.version + ' · ' + state.orientation.toUpperCase();
+  const c = state.claude || { sessions: 0, asks: 0 };
+  // No frame version here: a frame that names its own version differs from
+  // every other, and dashd could never skip one that changed nothing else.
+  const meta = c.sessions + ' sess · ' + c.asks + ' ask · ' + state.orientation.toUpperCase();
   const body = '<div class="screen">' +
     topbar('KINDLE DASH', { count: 'M1', linked: state.linked }) +
     '<div class="body">' + left + right + '</div>' +

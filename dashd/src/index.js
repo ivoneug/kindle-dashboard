@@ -1,6 +1,7 @@
-// dashd: renders e-ink frames on the Mac and serves them to the Kindle K3.
-// M1: one screen — the test card — redrawn on every key press and once a
-// minute for the clock.
+// dashd: renders e-ink frames on the Mac and serves them to the Kindle K3, and
+// runs the Claude Code side (sessions, permission bridge, usage) in-process.
+// Still M1's single screen — the test card — redrawn on every key press, on
+// Claude events and once a minute for the clock.
 
 import {
   PORT, USB_HOST, USB_BIND_RETRY_MS, PANEL, ORIENTATION, LANDSCAPE_ROTATE,
@@ -12,6 +13,8 @@ import { createFrameStore } from './frames.js';
 import { createHandler, listen } from './http-server.js';
 import { parseKey } from './keys.js';
 import { renderTestCard } from './screens/test-card.js';
+import { createClaude } from './claude/index.js';
+import { MOCK_SESSIONS } from './claude/config.js';
 import { log } from './log.js';
 
 const state = {
@@ -26,6 +29,13 @@ const renderer = createRenderer({ channel: CHROME_CHANNEL, executablePath: CHROM
 function linked() {
   return Date.now() - state.lastPollTs < LINK_ALIVE_MS;
 }
+
+// A permission request waits for the Kindle only while one is attached (mock
+// mode pretends there is, so the preview can show its scripted asks).
+const claude = createClaude({
+  onChange: () => scheduleRender(),
+  shouldHold: () => linked() || MOCK_SESSIONS,
+});
 
 function layout() {
   return state.orientation === 'landscape'
@@ -57,8 +67,16 @@ async function renderNow() {
     const t0 = Date.now();
     const box = layout();
     lastLinked = linked();
-    const html = renderTestCard({ ...state, linked: lastLinked, version: frames.version + 1 }, box);
+    const html = renderTestCard({
+      ...state,
+      linked: lastLinked,
+      claude: { sessions: claude.state.sessions.length, asks: claude.asks().length },
+    }, box);
     const frame = await renderer.render(html, box);
+    // Claude events fire far more often than anything on screen changes; an
+    // identical frame would still cost the Kindle a redraw.
+    const cur = frames.current();
+    if (!full && cur && cur.png.equals(frame.png)) return;
     const v = frames.publish(frame.png, { full });
     log('FR', `v${v} ${frame.width}×${frame.height} ${(frame.png.length / 1024).toFixed(0)}KB` +
       `${frames.get(v).full ? ' full' : ''} in ${Date.now() - t0}ms`);
@@ -88,6 +106,8 @@ const handler = createHandler({
     // them screens to act on.
     scheduleRender({ full: action === 'refresh' });
   },
+  onHook: (event, payload, res) => claude.onHook(event, payload, res),
+  status: () => ({ ...claude.status(), kindleLinked: linked(), frame: frames.version }),
   devState: () => ({
     version: frames.version,
     orientation: state.orientation,
@@ -114,8 +134,23 @@ function tickMinute() {
 }
 tickMinute();
 
+// The Kindle dropping off: whatever it was holding goes back to the terminal
+// now rather than at the ten-minute timeout.
+let wasLinked = false;
+setInterval(() => {
+  const now = linked();
+  if (wasLinked && !now) {
+    const n = claude.releasePermissions('unlinked');
+    log('--', `Kindle gone${n ? `, ${n} permission(s) back to the terminal` : ''}`);
+    scheduleRender();
+  }
+  wasLinked = now;
+}, 2_000).unref();
+
 async function shutdown() {
   log('--', 'shutting down');
+  claude.releasePermissions('shutdown');
+  claude.stop();
   await server.close();
   await renderer.close();
   process.exit(0);

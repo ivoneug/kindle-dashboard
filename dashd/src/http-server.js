@@ -5,6 +5,10 @@
 //   GET /frame.png?v=N      the frame of version N (current if v is absent)
 //   GET /key?code=K&v=N     a key press; v = version on the Kindle's screen
 //
+// Claude Code, loopback only (installed by scripts/install-hooks.js):
+//   POST /hook, /hook/<event>   hook payloads; PermissionRequest is held open
+//   GET /status                 JSON health: sessions, held asks, hooks
+//
 // Development routes, loopback only:
 //   GET /                   preview: the current frame plus simulated keys
 //   GET /dev/state          JSON for the preview page
@@ -41,13 +45,36 @@ function intParam(q, name) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
 // app: { frames, longPollMs, onKey({code, v, stale, local}), onPoll(),
+//        onHook(event, payload, res), status(),
 //        devState(), devSet(params), devRefresh() }
 export function createHandler(app) {
   return async function handle(req, res) {
     const url = new URL(req.url, 'http://x');
     const q = url.searchParams;
     const local = isLoopback(req.socket.remoteAddress);
+
+    // Hooks can hold and answer permission prompts, so they come from this
+    // Mac only — never from the Kindle's side of the cable.
+    if (req.method === 'POST' && (url.pathname === '/hook' || url.pathname.startsWith('/hook/'))) {
+      if (!local || !app.onHook) return text(res, 404, 'not found');
+      let payload = {};
+      try { payload = JSON.parse(await readBody(req) || '{}'); } catch {}
+      // Bare /hook is the type:"http" form: the event rides in the payload.
+      const event = url.pathname === '/hook'
+        ? (payload.hook_event_name || 'unknown')
+        : url.pathname.slice('/hook/'.length);
+      return app.onHook(event, payload, res);
+    }
 
     if (req.method !== 'GET') return text(res, 405, 'method not allowed');
 
@@ -86,6 +113,8 @@ export function createHandler(app) {
       case '/':
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         return res.end(fs.readFileSync(PREVIEW_HTML));
+      case '/status':
+        return json(res, app.status ? app.status() : {});
       case '/dev/state':
         return json(res, app.devState());
       case '/dev/set':
