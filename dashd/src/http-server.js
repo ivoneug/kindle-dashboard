@@ -20,7 +20,9 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { timingSafeEqual } from 'node:crypto';
 import { log } from './log.js';
+import { validateNetwork } from './network.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PREVIEW_HTML = path.join(__dirname, 'preview.html');
@@ -59,8 +61,11 @@ function readBody(req) {
 //        onHook(event, payload, res), status(),
 //        devState(), devSet(params), devRefresh() }
 export function createHandler(app) {
+  validateNetwork(app);
   return async function handle(req, res) {
-    const url = new URL(req.url, 'http://x');
+    let url;
+    try { url = new URL(req.url, 'http://x'); }
+    catch { return text(res, 400, 'invalid URL'); }
     const q = url.searchParams;
     const local = isLoopback(req.socket.remoteAddress);
 
@@ -80,9 +85,21 @@ export function createHandler(app) {
 
     if (req.method !== 'GET') return text(res, 405, 'method not allowed');
 
+    // The old Kindle wget cannot send custom headers. The shared secret rides
+    // in the query, is never logged, and gates all three device routes before
+    // a poll can mark the Kindle linked or a key can answer a permission.
+    if (!local && app.deviceToken && ['/version', '/frame.png', '/key'].includes(url.pathname)) {
+      const tokens = q.getAll('token');
+      const supplied = Buffer.from(tokens.length === 1 ? tokens[0] : '');
+      const expected = Buffer.from(app.deviceToken);
+      if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+        return text(res, 403, 'forbidden');
+      }
+    }
+
     switch (url.pathname) {
       case '/version': {
-        if (app.onPoll) app.onPoll(local);
+        if (app.onPoll) app.onPoll(local, { address: req.socket.remoteAddress, host: req.socket.localAddress });
         const since = intParam(q, 'since');
         const wait = app.frames.waitForChange(since, app.longPollMs);
         // res, not req: a GET's request side can count as closed before the
@@ -130,40 +147,52 @@ export function createHandler(app) {
   };
 }
 
-// Loopback always; the USB address when it exists. Unplugged cable = no such
-// address yet, so keep retrying instead of failing startup.
-export function listen(handler, { port, usbHost, retryMs }) {
+// Bind exact addresses, never 0.0.0.0. Either cable or Wi-Fi can be absent at
+// startup; keep retrying those addresses until their interfaces appear.
+export function listen(handler, { port, usbHost, lanHost = '', deviceToken = '', retryMs }) {
+  validateNetwork({ lanHost, deviceToken });
   const servers = [];
-  let warned = false;
+  const retries = new Set();
+  const warned = new Set();
+  let closing = false;
 
   function bind(host, { retry }) {
+    if (closing) return;
     const server = http.createServer(handler);
     // Long-polls are held open on purpose; Node's default request timeout
     // must not cut them.
     server.requestTimeout = 0;
     server.on('error', (err) => {
       if (retry && err.code === 'EADDRNOTAVAIL') {
-        if (!warned) log('!!', `${host} not on any interface yet (USB network down?) — retrying every ${retryMs / 1000}s`);
-        warned = true;
-        setTimeout(() => bind(host, { retry }), retryMs).unref();
+        if (closing) return;
+        if (!warned.has(host)) log('!!', `${host} not on any interface yet — retrying every ${retryMs / 1000}s`);
+        warned.add(host);
+        const timer = setTimeout(() => { retries.delete(timer); bind(host, { retry }); }, retryMs).unref();
+        retries.add(timer);
         return;
       }
       log('!!', `listen ${host}:${port}: ${err.message}`);
       process.exitCode = 1;
     });
     server.listen(port, host, () => {
+      if (closing) return server.close();
       log('--', `listening on http://${host}:${port}`);
       servers.push(server);
     });
   }
 
   bind('127.0.0.1', { retry: false });
-  if (usbHost && !isLoopback(usbHost)) bind(usbHost, { retry: true });
+  for (const host of new Set([usbHost, lanHost].filter((host) => host && !isLoopback(host)))) bind(host, { retry: true });
 
   return {
-    close: () => Promise.all(servers.map((s) => new Promise((r) => {
-      s.closeAllConnections();
-      s.close(r);
-    }))),
+    close() {
+      closing = true;
+      for (const timer of retries) clearTimeout(timer);
+      retries.clear();
+      return Promise.all(servers.map((s) => new Promise((r) => {
+        s.closeAllConnections();
+        s.close(r);
+      })));
+    },
   };
 }

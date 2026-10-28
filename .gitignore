@@ -1,5 +1,6 @@
 .DS_Store
 node_modules/
 dashd/.config.json
+kindle/dash/network.local.sh
 kindle/dash/test.png
 .state/

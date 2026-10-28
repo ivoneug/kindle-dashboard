@@ -9,6 +9,11 @@ if [ -f "$RUN/client.pid" ] && kill -0 "$(cat "$RUN/client.pid")" 2>/dev/null; t
   exit 0
 fi
 
+if [ "$DASH_WIFI" = 1 ] && [ -z "$DASH_TOKEN" ]; then
+  echo "Wi-Fi is missing its dashboard token — run kindle-wifi-setup.mjs"
+  exit 1
+fi
+
 # powerd stays running (it minds the battery); it is only told to keep the
 # screensaver away. A start from an older version may have frozen it.
 killall -CONT powerd 2>/dev/null
@@ -23,6 +28,12 @@ if [ "$(lipc-get-prop com.lab126.powerd state 2>/dev/null)" != "active" ]; then
   exit 1
 fi
 lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
+
+# wifid owns the saved network profile and reconnects it when enabled. Do not
+# change USBNetwork/sshd settings: USB remains available for maintenance.
+if [ "$DASH_WIFI" = 1 ]; then
+  lipc-set-prop com.lab126.wifid enable 1 2>/dev/null
+fi
 
 case "$UI_MODE" in
   stop) /etc/init.d/framework stop ;;

@@ -6,7 +6,7 @@
 // and only sent when it differs from the one on screen.
 
 import {
-  AGENT, PORT, USB_HOST, USB_BIND_RETRY_MS, PANEL, ORIENTATION, LANDSCAPE_ROTATE,
+  AGENT, PORT, USB_HOST, LAN_HOST, DEVICE_TOKEN, USB_BIND_RETRY_MS, PANEL, ORIENTATION, LANDSCAPE_ROTATE,
   FULL_EVERY, KEEP_FRAMES, LONG_POLL_MS, RENDER_DEBOUNCE_MS, MIN_FRAME_INTERVAL_MS, LINK_ALIVE_MS,
   CHROME_CHANNEL, CHROME_PATH,
 } from './config.js';
@@ -29,6 +29,8 @@ const state = {
   orientation: ORIENTATION === 'landscape' ? 'landscape' : 'portrait',
   keys: [],          // newest first
   lastPollTs: 0,     // last /version from the Kindle (not from the preview)
+  lastPollAddress: null,
+  lastPollHost: null,
 };
 
 const ui = createUi();
@@ -212,10 +214,14 @@ async function raiseTerminal(id) {
 
 const handler = createHandler({
   frames,
+  lanHost: LAN_HOST,
+  deviceToken: DEVICE_TOKEN,
   longPollMs: LONG_POLL_MS,
-  onPoll(local) {
+  onPoll(local, peer) {
     if (local) return;
     state.lastPollTs = Date.now();
+    state.lastPollAddress = peer.address;
+    state.lastPollHost = peer.host;
     // The link lamp lights on the first poll after a gap.
     if (!lastLinked) scheduleRender();
   },
@@ -239,7 +245,11 @@ const handler = createHandler({
     if (provider !== AGENT) { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end('{}'); }
     return agent.onHook(event, payload, res);
   },
-  status: () => ({ ...agent.status(), kindleLinked: linked(), frame: frames.version }),
+  status: () => ({
+    ...agent.status(), kindleLinked: linked(), frame: frames.version,
+    kindleAddress: state.lastPollAddress,
+    kindleTransport: state.lastPollHost ? (state.lastPollHost === LAN_HOST ? 'wifi' : 'usb') : null,
+  }),
   devState: () => ({
     version: frames.version,
     orientation: state.orientation,
@@ -263,7 +273,7 @@ const handler = createHandler({
   devRefresh: () => scheduleRender({ full: true }),
 });
 
-const server = listen(handler, { port: PORT, usbHost: USB_HOST, retryMs: USB_BIND_RETRY_MS });
+const server = listen(handler, { port: PORT, usbHost: USB_HOST, lanHost: LAN_HOST, deviceToken: DEVICE_TOKEN, retryMs: USB_BIND_RETRY_MS });
 scheduleRender({ full: true });
 
 // The clock in the top bar, and the link lamp going dark when the Kindle stops

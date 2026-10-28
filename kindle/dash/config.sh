@@ -5,15 +5,17 @@
 PATH=/usr/sbin:/sbin:/usr/bin:/bin
 export PATH
 
-# Mac end of the USB network link — dashd listens there (dashd usbHost).
-# Must match HOST_IP in /mnt/us/usbnet/etc/config and stay out of the home
-# LAN's subnet.
-DASH_HOST=192.168.2.1
-DASH_PORT=8765
-BASE="http://$DASH_HOST:$DASH_PORT"
-
 DIR=/mnt/us/dash
 RUN=/var/tmp/dash            # tmpfs: frame, version, pids, logs
+
+# USB by default. Device-specific Wi-Fi address and shared token are generated
+# by scripts/kindle-wifi-setup.mjs into an untracked local override.
+DASH_HOST=192.168.2.1
+DASH_PORT=8765
+DASH_WIFI=0
+DASH_TOKEN=
+[ ! -f "$DIR/network.local.sh" ] || . "$DIR/network.local.sh"
+BASE="http://$DASH_HOST:$DASH_PORT"
 
 # eips: -g draws a PNG with a partial update, -f makes it a full (flashing) one.
 EIPS_FULL="-f"
@@ -30,15 +32,22 @@ UI_MODE=freeze
 KEY_EXIT="102 1"
 
 # fetch SECS URL OUTFILE — wget with a watchdog. This busybox wget (1.7.2)
-#  • has no timeout, so a request to a Mac that vanished mid-request (cable
-#    pulled) would hang forever;
+#  • has no timeout, so a request to a Mac that vanished mid-request would
+#    hang forever (USB unplugged or Wi-Fi out of range);
 #  • refuses to overwrite an existing -O file (O_EXCL), so it always writes to
 #    stdout and the shell does the redirect.
 # The watchdog polls rather than sleeping the whole span: on the K3 a
 # backgrounded subshell kept running after kill, so it has to notice by itself
 # that wget is done.
 fetch() {
-  wget -q -O - "$2" > "$3" 2>/dev/null &
+  _url=$2
+  if [ -n "$DASH_TOKEN" ]; then
+    case "$_url" in
+      *\?*) _url="$_url&token=$DASH_TOKEN" ;;
+      *)    _url="$_url?token=$DASH_TOKEN" ;;
+    esac
+  fi
+  wget -q -O - "$_url" > "$3" 2>/dev/null &
   _w=$!
   ( _i=0
     while [ "$_i" -lt "$1" ] && kill -0 "$_w" 2>/dev/null; do sleep 1; _i=$((_i + 1)); done

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { validateNetwork } from './network.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -18,13 +19,15 @@ export const PORT = Number(pick('DASHD_PORT', 'port', 8765));
 export const AGENT = String(pick('DASHD_AGENT', 'agent', 'codex'));
 if (!['codex', 'claude'].includes(AGENT)) throw new Error('agent must be codex or claude');
 
-// The Mac's end of the USB network link. dashd listens here and on loopback,
-// never on 0.0.0.0: /key will approve tool calls, so the only peers allowed
-// to reach it are this Mac and the Kindle on the other end of the cable.
+// The Mac's end of the USB network link. Loopback and this address are always
+// available; an explicit LAN address enables Wi-Fi with a shared device token.
 // The default is the USBNetwork hack's own K3 default (HOST_IP in
 // /mnt/us/usbnet/etc/config). Must not sit inside the home LAN's subnet: this
 // Mac's Wi-Fi is on 192.168.1.0/24.
 export const USB_HOST = String(pick('DASHD_USB_HOST', 'usbHost', '192.168.2.1'));
+export const LAN_HOST = String(pick('DASHD_LAN_HOST', 'lanHost', ''));
+export const DEVICE_TOKEN = String(pick('DASHD_DEVICE_TOKEN', 'deviceToken', ''));
+validateNetwork({ lanHost: LAN_HOST, deviceToken: DEVICE_TOKEN });
 // While the cable is out the address does not exist and bind fails; retry.
 export const USB_BIND_RETRY_MS = 5_000;
 
