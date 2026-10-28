@@ -59,6 +59,7 @@ const CSS = `
 .state-attention .ctxfill .ctxtext { color: var(--ink); }
 
 .tile .sprite { position: absolute; right: 10px; bottom: 8px; }
+.tile .codex-mascot { bottom: 0; }
 
 .empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
   padding: 0 40px; font-weight: 700; font-size: 22px; letter-spacing: 0.16em; line-height: 1.5; }
@@ -112,7 +113,8 @@ function tile(s, d, selected, now, provider) {
     (spec ? '<div class="tspec">' + esc(spec) + '</div>' : '') +
     (s.context != null ? contextMeter(s.context) : '') +
     '</div>' +
-    mascot(provider, spriteName(s), { frame: frameFor(s.id), size: 64, inverted: attention, muted: s.state === 'idle' }) +
+    mascot(provider, spriteName(s), { frame: frameFor(s.id), size: 64, inverted: attention, muted: s.state === 'idle',
+      className: provider === 'codex' ? 'sprite codex-mascot' : 'sprite' }) +
     '</div>';
 }
 
