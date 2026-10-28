@@ -5,7 +5,7 @@
 // one that needs a person, so it alone is inverted.
 
 import { esc, topbar, legend, page } from './page.js';
-import { sprite } from './sprites.js';
+import { mascot } from './mascots.js';
 
 const CSS = `
 .usage { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; padding: 18px 18px 10px; }
@@ -47,7 +47,7 @@ function mood(pct) {
 const PHRASE = { clear: 'ALL CLEAR', low: 'RUNNING OUT', out: 'OUT OF USAGE' };
 const SPRITE = { clear: 'usage-calm', low: 'usage-sweat', out: 'usage-asleep' };
 
-function bar(l) {
+function bar(l, provider) {
   const pct = Math.max(0, Math.min(1, l.used || 0));
   const m = mood(pct);
   return '<div class="ubar mood-' + m + '">' +
@@ -58,7 +58,7 @@ function bar(l) {
     '<div class="utrack"><span class="ufill" style="width:' + (pct * 100).toFixed(1) + '%"></span></div>' +
     '<div class="uphrase">' + PHRASE[m] + '</div>' +
     '</div>' +
-    sprite(SPRITE[m], { size: 64, className: 'usprite' }) +
+    mascot(provider, SPRITE[m], { size: 64, className: 'usprite' }) +
     '</div>';
 }
 
@@ -86,7 +86,7 @@ export function renderUsage(view, { width, height }) {
   if (!u || !u.limits || !u.limits.length) {
     body = '<div class="empty">' + esc(u && u.error ? String(u.error).toUpperCase() : 'READING USAGE…') + '</div>';
   } else {
-    body = '<div class="usage">' + u.limits.map(bar).join('') + breakdown(u) + '</div>';
+    body = '<div class="usage">' + u.limits.map((l) => bar(l, view.provider || u.provider)).join('') + breakdown(u) + '</div>';
   }
   const meta = view.note || (u ? (u.updatedLabel || '') + (u.stale ? ' · stale' : '') : '');
   const html = '<div class="screen">' +

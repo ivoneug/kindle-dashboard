@@ -14,6 +14,9 @@ try { fileConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch {}
 const pick = (env, key, fallback) => process.env[env] ?? fileConfig[key] ?? fallback;
 
 export const PORT = Number(pick('DASHD_PORT', 'port', 8765));
+// One backend owns sessions, usage and permissions for this dashboard.
+export const AGENT = String(pick('DASHD_AGENT', 'agent', 'codex'));
+if (!['codex', 'claude'].includes(AGENT)) throw new Error('agent must be codex or claude');
 
 // The Mac's end of the USB network link. dashd listens here and on loopback,
 // never on 0.0.0.0: /key will approve tool calls, so the only peers allowed

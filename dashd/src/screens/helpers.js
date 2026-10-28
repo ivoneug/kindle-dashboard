@@ -20,6 +20,10 @@ const MODE_LABELS = {
   acceptEdits: 'EDITS',
   auto: 'AUTO',
   default: 'MANUAL',
+  'on-request': 'ON REQUEST',
+  'on-failure': 'ON FAILURE',
+  never: 'NO PROMPTS',
+  untrusted: 'UNTRUSTED',
 };
 
 export function modeLabel(mode) {

@@ -157,6 +157,7 @@ test('summary stays small: name clamped, only the agreed fields', () => {
   store.touch('a', { name: 'x'.repeat(80), tokensIn: 5, tokensOut: 7 });
   const s = store.snapshot().sessions[0];
   assert.equal(s.name.length, 32);
+  assert.equal(store.get('a').name, 'x'.repeat(80), 'detail keeps the full name to identify long-titled chats');
   assert.deepEqual(Object.keys(s).sort(), [
     'context', 'effort', 'ended', 'id', 'lastActivityTs', 'model', 'name',
     'pendingPermission', 'permissionMode', 'state', 'tokens',

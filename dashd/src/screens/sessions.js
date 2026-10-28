@@ -8,7 +8,9 @@
 
 import { esc, topbar, legend, contextMeter, page } from './page.js';
 import { stateLabel, modeLabel, effortLabel, fmtDuration } from './helpers.js';
-import { sprite, frameFor } from './sprites.js';
+import { frameFor } from './sprites.js';
+import { mascot } from './mascots.js';
+import { renderMarkdownPreview } from './markdown.js';
 
 export const PER_PAGE = 4;
 
@@ -41,6 +43,10 @@ const CSS = `
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .landscape .tsub { font-size: 17px; margin-top: 4px; white-space: normal;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tmessage { font-family: "Helvetica Neue", Arial, sans-serif; font-weight: 400; }
+.tmessage strong { font-weight: 700; }
+.tmessage code { font-family: var(--mono); font-size: 0.85em; background: var(--wash); padding: 0 3px; }
+.state-attention .tmessage code { background: var(--ink-3); }
 
 .tfoot { margin-top: auto; padding-right: 76px; }
 .tspec { margin-bottom: 4px; font-family: var(--mono); font-size: 14px;
@@ -63,10 +69,12 @@ const CSS = `
 function subline(s, d, now) {
   if (s.pendingPermission) return 'needs your answer';
   // What the Claude app shows under its task list: the running call's own words.
-  if (d && d.activity) return '▶ ' + d.activity;
-  if (d && d.currentTool) return d.currentTool + (d.lastMessage ? ' · ' + d.lastMessage : '');
+  if (d && d.activity) return '▶ ' + esc(d.activity);
+  const message = d && d.lastMessage
+    ? '<span class="tmessage">' + renderMarkdownPreview(d.lastMessage) + '</span>' : '';
+  if (d && d.currentTool) return esc(d.currentTool) + (message ? ' · ' + message : '');
   if (s.state === 'celebrate' && s.lastActivityTs) return 'finished ' + fmtDuration(now - s.lastActivityTs) + ' ago';
-  if (d && d.lastMessage) return d.lastMessage;
+  if (message) return message;
   return s.state === 'busy' ? 'working…' : '';
 }
 
@@ -85,7 +93,7 @@ function spriteName(s) {
   return 'sleeping-idle';
 }
 
-function tile(s, d, selected, now) {
+function tile(s, d, selected, now, provider) {
   const mode = modeLabel(s.permissionMode);
   const model = (s.model || '').replace(/^claude-/, '');
   const eff = s.state === 'busy' ? effortLabel(s.effort) : null;
@@ -99,12 +107,12 @@ function tile(s, d, selected, now) {
     (s.pendingPermission ? '<span class="badge">!</span>' : '') +
     '</div>' +
     '<div class="tname">' + esc(s.name) + '</div>' +
-    '<div class="tsub">' + esc(subline(s, d, now)) + '</div>' +
+    '<div class="tsub">' + subline(s, d, now) + '</div>' +
     '<div class="tfoot">' +
     (spec ? '<div class="tspec">' + esc(spec) + '</div>' : '') +
     (s.context != null ? contextMeter(s.context) : '') +
     '</div>' +
-    sprite(spriteName(s), { frame: frameFor(s.id), size: 64, inverted: attention }) +
+    mascot(provider, spriteName(s), { frame: frameFor(s.id), size: 64, inverted: attention, muted: s.state === 'idle' }) +
     '</div>';
 }
 
@@ -118,15 +126,16 @@ export function renderSessions(view, { width, height }) {
 
   let body;
   if (!n) {
-    body = '<div class="empty">NO SESSIONS — START CLAUDE ON YOUR MAC</div>';
+    body = '<div class="empty">NO SESSIONS — START ' + esc((view.provider || 'claude').toUpperCase()) + ' ON YOUR MAC</div>';
   } else {
     body = '<div class="grid">' +
       view.sessions.slice(first, first + PER_PAGE)
-        .map((s, i) => tile(s, view.details[s.id], first + i === view.selected, now)).join('') +
+        .map((s, i) => tile(s, view.details[s.id], first + i === view.selected, now, view.provider)).join('') +
       '</div>';
   }
 
-  const meta = view.note || (pages > 1 ? 'PAGE ' + (pageNo + 1) + '/' + pages : '');
+  const provider = view.provider ? view.provider.toUpperCase() : '';
+  const meta = view.note || [provider, pages > 1 ? 'PAGE ' + (pageNo + 1) + '/' + pages : ''].filter(Boolean).join(' · ');
   const html = '<div class="screen">' +
     topbar('SESSIONS', { count: n ? String(n) : '', linked: view.linked, waiting: view.waiting }) +
     body +

@@ -3,17 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Mac bridge for the Kindle K3 dashboard: renders e-ink frames and serves them to the Kindle over plain HTTP",
+  "description": "Kindle K3 dashboard for Codex and Claude Code: sessions, usage, approvals and e-ink frames",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "start": "node src/index.js",
     "fonts": "node scripts/extract-fonts.js",
-    "test": "CLAUDE_THING_HOLD_MS=200 node --test \"test/*.test.js\" \"test/claude/*.test.js\"",
-    "install-hooks": "node scripts/install-hooks.js",
-    "uninstall-hooks": "node scripts/uninstall-hooks.js",
-    "mock": "CLAUDE_THING_MOCK=1 node src/index.js"
+    "test": "node scripts/run-tests.js",
+    "install-hooks": "node scripts/manage-hooks.js",
+    "uninstall-hooks": "node scripts/manage-hooks.js --remove",
+    "mock": "DASHD_AGENT=claude CLAUDE_THING_MOCK=1 node src/index.js",
+    "install-hooks:codex": "node scripts/install-codex-hooks.js",
+    "uninstall-hooks:codex": "node scripts/install-codex-hooks.js --remove",
+    "start:claude": "DASHD_AGENT=claude node src/index.js",
+    "install-hooks:claude": "node scripts/install-hooks.js",
+    "uninstall-hooks:claude": "node scripts/uninstall-hooks.js"
   },
   "dependencies": {
     "marked": "^18.1.2",

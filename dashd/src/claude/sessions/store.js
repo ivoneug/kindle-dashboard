@@ -49,7 +49,9 @@ export function createStore() {
       tokens: { in: s.tokensIn || 0, out: s.tokensOut || 0 },
       // 0..1 of the model's context window, or null when we can't know — the
       // device draws no meter rather than a meter against a guess.
-      context: contextFraction(s.model, s.contextTokens),
+      context: s.contextWindow > 0 && Number.isFinite(s.contextTokens)
+        ? Math.max(0, Math.min(1, s.contextTokens / s.contextWindow))
+        : contextFraction(s.model, s.contextTokens),
       pendingPermission: !!s.pendingPermission,
       // Which permission mode the window is in: plan / bypassPermissions /
       // acceptEdits / auto / default. null until something says, and the
@@ -75,6 +77,8 @@ export function createStore() {
   function detail(s) {
     return {
       ...summary(s),
+      // Tile summaries stay compact; the detail screen has room for the name.
+      name: (s.name || 'session').slice(0, 512),
       contextTokens: s.contextTokens || 0,
       cacheRead: s.cacheRead || 0,
       cwd: s.cwd || '',

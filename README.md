@@ -1,13 +1,14 @@
 # Kindle Dashboard
 
-HUD для Claude Code на Kindle Keyboard (K3). Спецификация и ресерч: [kindle-dashboard.md](kindle-dashboard.md).
+HUD для Codex и Claude Code на Kindle Keyboard (K3). Спецификация и ресерч: [kindle-dashboard.md](kindle-dashboard.md).
 
-Kindle работает как тонкий клиент: забирает готовый PNG с Mac, выводит его через `eips` и отправляет сырые нажатия клавиш. Вся логика, вёрстка и раскладка клавиш живут на Mac в `dashd`. Там же, в том же процессе, работает сторона Claude Code: сессии, мост разрешений, очередь вопросов, лимиты. Это ядро демона [claude-thing](https://github.com/rithkott/claude-thing), перенесённое в репозиторий.
+Kindle работает как тонкий клиент: забирает готовый PNG с Mac, выводит его через `eips` и отправляет сырые нажатия клавиш. Вся логика, вёрстка и раскладка клавиш живут на Mac в `dashd`. В том же процессе работает выбранный backend: Codex по умолчанию или Claude Code. Общий store, мост разрешений и оформление основаны на [claude-thing](https://github.com/rithkott/claude-thing).
 
 ```
 dashd/                Mac: рендер (headless Chrome → 16 оттенков серого) + HTTP API для Kindle
   src/claude/         ядро демона claude-thing (сессии, разрешения, usage); см. его README
-  src/screens/        экраны (пока тестовый экран M1)
+  src/codex/          Codex: app-server, история чатов, лимиты и command hooks
+  src/screens/        Sessions, детальный экран, Queue, Usage
   src/theme/          e-ink тема; fonts.css извлекается из claude-thing (npm run fonts)
   src/keys.js         сырой код клавиши → действие
   scripts/            установка хуков Claude Code, служебные генераторы
@@ -34,21 +35,52 @@ npm start
 Настройки берутся из `dashd/.config.json` (переменные окружения `DASHD_*` имеют приоритет), см. [config.js](dashd/src/config.js):
 
 ```json
-{ "usbHost": "192.168.2.1", "orientation": "portrait", "landscapeRotate": 90 }
+{ "agent": "codex", "usbHost": "192.168.2.1", "orientation": "portrait", "landscapeRotate": 90 }
 ```
 
 Тесты: `npm test`. В том числе проверяется, что кадры имеют PNG `color_type 0`, иначе `eips` их не покажет. Тесты перенесённого ядра лежат в `test/claude/`.
 
-### Claude Code
+### Codex (по умолчанию)
+
+Нужен установленный и авторизованный Codex CLI. `dashd` находит его в PATH или
+внутри Codex.app на macOS; явный путь можно задать в `DASHD_CODEX_BIN`.
+`npm start` читает существующие чаты и лимиты через локальный
+app-server. Новые модельные запросы для мониторинга не создаются.
+
+```bash
+npm run install-hooks:codex
+# затем в Codex: /hooks — просмотреть и доверить новые хуки
+```
+
+Если терминал пишет `command not found: codex`, CLI из приложения запускается так:
+
+```bash
+"/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
+```
+
+После доверия разрешения отвечаются с Kindle: `Y` / `N` / `Back`. Без Kindle
+или запущенного `dashd` используется обычный интерфейс разрешений Codex.
+`/status` показывает `hooks: true` после первого дошедшего события.
+
+Список показывает до 20 корневых чатов за последние сутки, включая завершённые
+(IDLE). Импортированные истории появляются после первого запуска в Codex;
+Guardian и внутренние подагенты скрыты. Контекст и лимиты берутся из данных Codex.
+Подробности и ограничения: [docs/codex-integration.md](docs/codex-integration.md).
+
+### Claude Code (совместимость)
+
+Запуск: `npm run start:claude`, либо `agent: "claude"` в `.config.json`.
+
 
 Сессии `dashd` находит и без хуков: опрашивает `claude agents --json` и читает транскрипты. Лимиты берёт из `claude -p "/usage"` раз в минуту. Хуки нужны для точных состояний и для разрешений:
 
 ```bash
-npm run install-hooks     # в ~/.claude/settings.json, с резервной копией
-npm run uninstall-hooks
+npm run install-hooks:claude     # в ~/.claude/settings.json, с резервной копией
+npm run uninstall-hooks:claude
 ```
 
-Хуки шлют события на `127.0.0.1:8765/hook` и принимаются только с loopback. Если рядом стоят хуки claude-thing (`:8790`), установщик откажется: два моста разрешений не должны спорить за один ответ.
+Команды `install-hooks` / `uninstall-hooks` выбирают backend как `npm start`.
+Хуки Claude шлют события на `127.0.0.1:8765/hook` и принимаются только с loopback. Если рядом стоят хуки claude-thing (`:8790`), установщик откажется: два моста разрешений не должны спорить за один ответ.
 
 Как ведёт себя запрос разрешения:
 - **Kindle подключён** (опрашивал `dashd` за последние ~35 с): запрос появляется на экране Queue и ждёт ответа с Kindle до ~10 минут. Потом он уходит на Mac, в терминал или в приложение Claude: туда, где открыта сессия.

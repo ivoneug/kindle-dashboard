@@ -1,12 +1,12 @@
 // dashd: renders e-ink frames on the Mac and serves them to the Kindle K3, and
-// runs the Claude Code side (sessions, permission bridge, usage) in-process.
+// runs the selected agent backend (Codex by default) in-process.
 // Screens: Sessions with the session detail, Queue and Usage, plus the M1 test
 // card behind MENU. Permissions are answered from the Queue (M3). A frame
 // is rendered on key presses, Claude events and once a minute for the clock,
 // and only sent when it differs from the one on screen.
 
 import {
-  PORT, USB_HOST, USB_BIND_RETRY_MS, PANEL, ORIENTATION, LANDSCAPE_ROTATE,
+  AGENT, PORT, USB_HOST, USB_BIND_RETRY_MS, PANEL, ORIENTATION, LANDSCAPE_ROTATE,
   FULL_EVERY, KEEP_FRAMES, LONG_POLL_MS, RENDER_DEBOUNCE_MS, MIN_FRAME_INTERVAL_MS, LINK_ALIVE_MS,
   CHROME_CHANNEL, CHROME_PATH,
 } from './config.js';
@@ -21,6 +21,7 @@ import { renderDetail } from './screens/detail.js';
 import { renderQueue } from './screens/queue.js';
 import { createUi, ARM_MS } from './ui.js';
 import { createClaude } from './claude/index.js';
+import { createCodex } from './codex/index.js';
 import { MOCK_SESSIONS } from './claude/config.js';
 import { log } from './log.js';
 
@@ -41,20 +42,21 @@ function linked() {
 // A permission request waits for the Kindle only while one is attached; with
 // none, Claude Code shows its own prompt at once. Mock mode always holds — its
 // asks block nobody, and the screens need them.
-const claude = createClaude({
-  onChange: onClaudeEvent,
-  shouldHold: () => MOCK_SESSIONS || linked(),
+const backend = AGENT === 'codex' ? createCodex : createClaude;
+const agent = backend({
+  onChange: onAgentEvent,
+  shouldHold: () => (AGENT === 'claude' && MOCK_SESSIONS) || linked(),
 });
 
 // A new ask takes the screen (only worth it when someone can see it); the last
 // one answered gives it back.
-function onClaudeEvent(topic) {
-  if (topic === 'claude.permission.request' || topic === 'claude.question.request') {
-    if ((linked() || MOCK_SESSIONS) && ui.surfaceQueue()) return scheduleRender({ full: true, urgent: true });
+function onAgentEvent(topic) {
+  if (topic.endsWith('.permission.request') || topic.endsWith('.question.request')) {
+    if ((linked() || (AGENT === 'claude' && MOCK_SESSIONS)) && ui.surfaceQueue()) return scheduleRender({ full: true, urgent: true });
     return scheduleRender({ urgent: true });
   }
-  if (topic === 'claude.permission.resolved' || topic === 'claude.question.resolved') {
-    if (!claude.asks().length && ui.queueEmptied()) return scheduleRender({ full: true, urgent: true });
+  if (topic.endsWith('.permission.resolved') || topic.endsWith('.question.resolved')) {
+    if (!agent.asks().length && ui.queueEmptied()) return scheduleRender({ full: true, urgent: true });
     return scheduleRender({ urgent: true });
   }
   scheduleRender();
@@ -122,10 +124,11 @@ async function renderNow() {
 
 // The frame's HTML, plus what dashd must remember about it.
 function screen(box) {
-  const sessions = claude.state.sessions;
-  const asks = claude.asks();
+  const sessions = agent.state.sessions;
+  const asks = agent.asks();
   const view = {
     orientation: state.orientation,
+    provider: AGENT,
     linked: lastLinked,
     waiting: asks.length,
     note: ui.note(),
@@ -141,7 +144,7 @@ function screen(box) {
     }
     case 'detail': {
       const i = sessions.findIndex((s) => s.id === ui.selectedId);
-      const d = i >= 0 ? claude.detail(sessions[i].id) : null;
+      const d = i >= 0 ? agent.detail(sessions[i].id) : null;
       if (!d) {
         // The session went away under the detail screen.
         ui.leaveDetail();
@@ -150,7 +153,7 @@ function screen(box) {
       return { html: renderDetail({ ...view, session: d, index: i, total: sessions.length, msgPage: ui.msgPage }, box) };
     }
     case 'usage':
-      return { html: renderUsage({ ...view, usage: claude.state.usage }, box) };
+      return { html: renderUsage({ ...view, usage: agent.state.usage }, box) };
     case 'test':
       return { html: renderTestCard({ ...state, ...view, claude: { sessions: sessions.length, asks: view.waiting } }, box) };
     default:
@@ -158,7 +161,7 @@ function screen(box) {
         html: renderSessions({
           ...view,
           sessions,
-          details: claude.state.details,
+          details: agent.state.details,
           selected: ui.selectedIndex(sessions),
         }, box),
       };
@@ -185,7 +188,7 @@ function answerAsk({ id, decision, destructive }, v) {
     return;
   }
   ui.disarm();
-  const ok = claude.answerPermission(id, decision);
+  const ok = agent.answerPermission(id, decision);
   showNote(ok ? DONE[decision] : 'ALREADY ANSWERED');
 }
 
@@ -199,7 +202,7 @@ function showNote(text) {
 // The screen already says which session; the note says what happened.
 async function raiseTerminal(id) {
   try {
-    const r = await claude.focusSession(id);
+    const r = await agent.focusSession(id);
     if (r && r.focused) showNote('RAISED ' + (r.app || '') + (r.exact ? '' : ' (APP ONLY)'));
     else showNote('CAN\'T RAISE: ' + ((r && r.reason) || 'unknown'));
   } catch (err) {
@@ -226,22 +229,28 @@ const handler = createHandler({
       if (ui.screen === 'test') scheduleRender({ urgent: true });
       return;
     }
-    const r = ui.act(action, { sessions: claude.state.sessions, asks: claude.asks(), orientation: state.orientation });
+    const r = ui.act(action, { sessions: agent.state.sessions, asks: agent.asks(), orientation: state.orientation });
     if (r.focus) raiseTerminal(r.focus);
     if (r.answer) answerAsk(r.answer, v);
     if (r.note) showNote(r.note);
     if (r.changed || ui.screen === 'test') scheduleRender({ full: !!r.full, urgent: true });
   },
-  onHook: (event, payload, res) => claude.onHook(event, payload, res),
-  status: () => ({ ...claude.status(), kindleLinked: linked(), frame: frames.version }),
+  onHook(event, payload, res, provider) {
+    if (provider !== AGENT) { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end('{}'); }
+    return agent.onHook(event, payload, res);
+  },
+  status: () => ({ ...agent.status(), kindleLinked: linked(), frame: frames.version }),
   devState: () => ({
     version: frames.version,
     orientation: state.orientation,
     screen: ui.screen,
     linked: linked(),
-    sessions: claude.state.sessions.length,
-    waiting: claude.asks().length,
-    usage: claude.state.usage,
+    sessions: agent.state.sessions.length,
+    sessionList: agent.state.sessions,
+    selectedId: ui.selectedId,
+    waiting: agent.asks().length,
+    usage: agent.state.usage,
+    provider: AGENT,
     keys: state.keys,
   }),
   devSet({ orientation }) {
@@ -270,7 +279,7 @@ let wasLinked = false;
 setInterval(() => {
   const now = linked();
   if (wasLinked && !now) {
-    const n = claude.releasePermissions('unlinked');
+    const n = agent.releasePermissions('unlinked');
     log('--', `Kindle gone${n ? `, ${n} permission(s) back to the terminal` : ''}`);
     scheduleRender();
   }
@@ -279,8 +288,8 @@ setInterval(() => {
 
 async function shutdown() {
   log('--', 'shutting down');
-  claude.releasePermissions('shutdown');
-  claude.stop();
+  agent.releasePermissions('shutdown');
+  agent.stop();
   await server.close();
   await renderer.close();
   process.exit(0);
