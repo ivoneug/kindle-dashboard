@@ -17,6 +17,7 @@ SSH_OPTS=(
 )
 
 node dashd/scripts/test-png.js >/dev/null
+node dashd/scripts/device-assets.js >/dev/null
 
 if [ -d /Volumes/Kindle ]; then
   mkdir -p /Volumes/Kindle/dash

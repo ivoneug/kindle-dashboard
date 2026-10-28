@@ -100,16 +100,20 @@ export function createHandler(app) {
     switch (url.pathname) {
       case '/version': {
         if (app.onPoll) app.onPoll(local, { address: req.socket.remoteAddress, host: req.socket.localAddress });
-        const since = intParam(q, 'since');
+        const newEpoch = q.has('epoch') && q.get('epoch') !== app.frames.epoch;
+        const since = newEpoch ? 0 : intParam(q, 'since');
         const wait = app.frames.waitForChange(since, app.longPollMs);
         // res, not req: a GET's request side can count as closed before the
         // client is gone.
         res.on('close', wait.abort);
         const s = await wait.promise;
         if (res.writableEnded || res.destroyed) return;
-        return text(res, 200, s.full ? `${s.version} full` : String(s.version));
+        // Preserve the two-field response for legacy clients.
+        const epoch = q.has('epoch') ? ` epoch=${app.frames.epoch}` : '';
+        return text(res, 200, (s.full ? `${s.version} full` : String(s.version)) + epoch);
       }
       case '/frame.png': {
+        if (q.has('epoch') && q.get('epoch') !== app.frames.epoch) return text(res, 409, 'daemon restarted');
         const v = q.has('v') ? intParam(q, 'v') : app.frames.version;
         const f = app.frames.get(v);
         if (!f) return text(res, 404, 'no such frame');
@@ -121,6 +125,7 @@ export function createHandler(app) {
         if (!code) return text(res, 400, 'missing code');
         const v = intParam(q, 'v');
         const stale = v !== app.frames.version;
+        if (q.has('epoch') && q.get('epoch') !== app.frames.epoch) return text(res, 409, 'stale daemon');
         app.onKey({ code, v, stale, local });
         return text(res, 200, stale ? 'stale' : 'ok');
       }

@@ -42,7 +42,8 @@ case "$UI_MODE" in
   *)    killall -STOP cvm 2>/dev/null ;;
 esac
 eips -c >/dev/null 2>&1
-rm -f "$RUN/version"
+rm -f "$RUN/version" "$RUN/shown"
+if [ -f "$DIR/offline.png" ]; then eips -f -g "$DIR/offline.png" >/dev/null 2>&1; fi
 
 # Ignoring HUP keeps both loops alive after the ssh session that started them
 # closes; exec keeps the recorded pid the loop's own.

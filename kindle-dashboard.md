@@ -1,6 +1,6 @@
 # Kindle Dashboard для Claude Code
 
-> **Адаптация Codex (2026-10-29).** Текущая реализация по умолчанию использует Codex: локальный app-server, JSONL-историю и command hooks. Подробности: [docs/codex-integration.md](docs/codex-integration.md). Claude доступен через `DASHD_AGENT=claude`. Ниже сохранён исходный дизайн и результаты M0–M3. В M4 добавлен автозапуск на Mac/Kindle; настройка описана в README.
+> **Адаптация Codex (2026-10-29).** Текущая реализация по умолчанию использует Codex: локальный app-server, JSONL-историю и command hooks. Подробности: [docs/codex-integration.md](docs/codex-integration.md). Claude доступен через `DASHD_AGENT=claude`. Ниже сохранён исходный дизайн и результаты M0–M3. В M4 добавлены автозапуск на Mac/Kindle и восстановление Wi-Fi; настройка описана в README.
 
 Контекст и ресерч для прототипа. Документ написан для Claude Code: прочитай целиком перед началом работы, начинай с этапа M0 и сначала проверяй на устройстве всё, что помечено **[ПРОВЕРИТЬ]**.
 

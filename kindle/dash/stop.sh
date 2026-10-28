@@ -9,7 +9,7 @@ if [ -n "$BOOT_PID" ] && [ -r "/proc/$BOOT_PID/cmdline" ]; then
   esac
 fi
 kill_dash
-rm -f "$RUN/client.pid" "$RUN/keys.pid" "$RUN/boot.pid"
+rm -f "$RUN/client.pid" "$RUN/keys.pid" "$RUN/boot.pid" "$RUN/shown" "$RUN/version"
 
 # During shutdown Java needs to run its own stop handler, without a repaint.
 if [ "$1" = --shutdown ]; then

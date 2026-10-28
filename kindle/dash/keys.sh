@@ -16,10 +16,13 @@ while :; do
     exit 0
   fi
 
-  V=$(cat "$RUN/version" 2>/dev/null)
+  SHOWN=$(cat "$RUN/shown" 2>/dev/null)
+  [ -n "$SHOWN" ] || continue
+  V=${SHOWN%% *}
+  EPOCH=${SHOWN#* }
   CODE=$(echo "$KEY" | tr ' ' '+')
   # In the background: with the Mac gone the request can take until the
   # watchdog, and the loop must keep reading keys (the exit key above most of
   # all).
-  fetch 10 "$BASE/key?code=$CODE&v=${V:-0}" /dev/null &
+  fetch 10 "$BASE/key?code=$CODE&v=$V&epoch=$EPOCH" /dev/null &
 done

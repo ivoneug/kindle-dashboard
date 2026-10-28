@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 // Versioned frames and the long-poll that hands them out.
 //
 // The Kindle's whole job is "is there a version other than the one on my
@@ -6,6 +8,8 @@
 // from its own, not only a larger one.
 
 export function createFrameStore({ fullEvery = 10, keep = 4 } = {}) {
+  // Versions repeat across daemon restarts; never reuse an old permission UI.
+  const epoch = randomBytes(16).toString('hex');
   let version = 0;
   let lastFullVersion = 0;
   let partialsSinceFull = 0;
@@ -54,6 +58,7 @@ export function createFrameStore({ fullEvery = 10, keep = 4 } = {}) {
   }
 
   return {
+    epoch,
     publish,
     waitForChange,
     status,

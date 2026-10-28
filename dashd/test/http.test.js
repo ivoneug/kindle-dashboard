@@ -78,3 +78,18 @@ test('loopback detection', () => {
   assert.ok(!isLoopback('::ffff:192.168.2.2'));
   assert.ok(!isLoopback(undefined));
 });
+
+test('a daemon restart forces a full frame even when its number matches the old screen', async () => {
+  await withServer(async ({ base, frames, keys }) => {
+    frames.publish(Buffer.from('new-daemon-frame'));
+    const oldEpoch = createFrameStore().epoch;
+    const response = (await get(`${base}/version?since=1&epoch=${oldEpoch}`)).body.toString();
+    assert.equal(response, `1 full epoch=${frames.epoch}\n`);
+    assert.equal((await get(`${base}/frame.png?v=1&epoch=${oldEpoch}`)).status, 409);
+    assert.equal((await get(`${base}/key?code=21+1&v=1&epoch=${oldEpoch}`)).status, 409);
+    assert.equal(keys.length, 0, 'an old permission screen cannot approve in the new daemon');
+    assert.equal((await get(`${base}/frame.png?v=1&epoch=${frames.epoch}`)).body.toString(), 'new-daemon-frame');
+    assert.equal((await get(`${base}/key?code=31+1&v=1&epoch=${frames.epoch}`)).status, 200);
+    assert.equal(keys.length, 1);
+  });
+});
