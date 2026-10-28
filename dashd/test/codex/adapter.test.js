@@ -125,26 +125,75 @@ function response() {
 }
 const payload = { session_id: 'test-codex-thread', tool_name: 'Bash', tool_input: { command: 'date' } };
 
+function permissionFixture(t, reviewer) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kindle-reviewer-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(home, 'sessions'));
+  const file = path.join(home, 'sessions/rollout.jsonl');
+  const hook = { ...payload, turn_id: 'permission-turn', transcript_path: file };
+  fs.writeFileSync(file, [record('session_meta', { id: hook.session_id }),
+    record('turn_context', { turn_id: hook.turn_id, approvals_reviewer: reviewer, approval_policy: 'on-request' })]
+    .map(JSON.stringify).join('\n') + '\n');
+  return { home, hook };
+}
+
 test('real Codex adapter holds and answers allow/deny, Back and disconnect release to host', (t) => {
-  const agent = createCodex({ shouldHold: () => true, rpc: { request: async () => ({ data: [] }), stop() {} } });
+  const { home, hook } = permissionFixture(t, 'user');
+  const agent = createCodex({ home, shouldHold: () => true, rpc: { request: async () => ({ data: [] }), stop() {} } });
   t.after(() => agent.stop());
   for (const decision of ['allow', 'deny', 'ask']) {
-    const res = response(); agent.onHook('PermissionRequest', payload, res);
+    const res = response(); agent.onHook('PermissionRequest', hook, res);
     assert.equal(res.body, undefined);
     const ask = agent.asks()[0]; assert.ok(ask);
     assert.equal(agent.answerPermission(ask.id, decision), true);
     assert.equal(decision === 'ask' ? res.body : JSON.parse(res.body).hookSpecificOutput.decision.behavior, decision === 'ask' ? '{}' : decision);
     assert.equal(agent.answerPermission(ask.id, 'allow'), false);
   }
-  const res = response(); agent.onHook('PermissionRequest', payload, res);
+  const res = response(); agent.onHook('PermissionRequest', hook, res);
   agent.releasePermissions('unlinked'); assert.equal(res.body, '{}');
 });
 
 test('without Kindle the Codex approval goes to its normal UI immediately', (t) => {
-  const agent = createCodex({ shouldHold: () => false, rpc: { request: async () => ({ data: [] }), stop() {} } });
+  const { home, hook } = permissionFixture(t, 'user');
+  const agent = createCodex({ home, shouldHold: () => false, rpc: { request: async () => ({ data: [] }), stop() {} } });
   t.after(() => agent.stop());
-  const res = response(); agent.onHook('PermissionRequest', payload, res);
+  const res = response(); agent.onHook('PermissionRequest', hook, res);
   assert.equal(res.body, '{}'); assert.equal(agent.asks().length, 0);
+});
+
+test('auto-review and unknown reviewers bypass Kindle without a decision or attention event', (t) => {
+  for (const reviewer of ['auto_review', undefined, 'future-reviewer']) {
+    const { home, hook } = permissionFixture(t, reviewer);
+    const events = [];
+    const agent = createCodex({ home, shouldHold: () => true, onChange: (topic) => events.push(topic),
+      rpc: { request: async () => ({ data: [] }), stop() {} } });
+    t.after(() => agent.stop());
+    const res = response();
+    agent.onHook('PermissionRequest', hook, res);
+    assert.equal(res.body, '{}');
+    assert.equal(agent.asks().length, 0);
+    assert.equal(agent.status().pendingPermissions, 0);
+    assert.equal(agent.detail(hook.session_id), null);
+    assert.ok(!events.some((event) => event.endsWith('.permission.request')));
+  }
+});
+
+test('switching reviewers between turns does not reuse a previous manual approval context', (t) => {
+  const { home, hook } = permissionFixture(t, 'user');
+  const agent = createCodex({ home, shouldHold: () => true, rpc: { request: async () => ({ data: [] }), stop() {} } });
+  t.after(() => agent.stop());
+  const manual = response(); agent.onHook('PermissionRequest', hook, manual);
+  agent.answerPermission(agent.asks()[0].id, 'ask');
+  const next = { ...hook, turn_id: 'auto-turn' };
+  // A new turn whose context has not been persisted yet must not use old user.
+  const missing = response(); agent.onHook('PermissionRequest', next, missing);
+  assert.equal(missing.body, '{}');
+  fs.appendFileSync(hook.transcript_path, JSON.stringify(record('turn_context', {
+    turn_id: next.turn_id, approvals_reviewer: 'auto_review', approval_policy: 'on-request',
+  })) + '\n');
+  const automatic = response(); agent.onHook('PermissionRequest', next, automatic);
+  assert.equal(automatic.body, '{}');
+  assert.equal(agent.asks().length, 0);
 });
 
 test('Codex questions are visible in Queue and resolved when the tool finishes', (t) => {

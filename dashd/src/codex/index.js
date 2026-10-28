@@ -10,6 +10,7 @@ import { createRpc } from './rpc.js';
 import { createRolloutReader, applyRecord, questionFrom } from './rollout.js';
 import { normalizeUsage } from './usage.js';
 import { createTitleIndex, sessionName } from './titles.js';
+import { readPermissionContext } from './permissions.js';
 
 // Only exact, explicitly supported decisions go back to Codex. No decision
 // (Back, timeout, disconnect) means {} — Codex's normal approval UI takes over.
@@ -22,13 +23,13 @@ export function codexDecision(body) {
     : '{}';
 }
 
-export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc = createRpc(), pollMs = CODEX_POLL_MS } = {}) {
+export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc = createRpc(), pollMs = CODEX_POLL_MS, home = CODEX_HOME } = {}) {
   const state = { sessions: [], details: {}, usage: null };
   const store = createStore();
   const records = new Map();
   const questions = new Map();
   const closed = new Set();
-  const titleIndex = createTitleIndex();
+  const titleIndex = createTitleIndex({ home });
   let stopped = false, timer = null, usageTs = 0, lastError = '', lastHookTs = 0;
 
   function emit(topic, data) {
@@ -69,7 +70,7 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
   function readRollout(id, rec, file) {
     if (!file) return;
     // Never read arbitrary files sent by a hook. Only Codex's rollout trees.
-    const roots = ['sessions', 'archived_sessions'].map((n) => path.join(CODEX_HOME, n) + path.sep);
+    const roots = ['sessions', 'archived_sessions'].map((n) => path.join(home, n) + path.sep);
     let real;
     try { real = fs.realpathSync(file); } catch { return; }
     if (!roots.some((r) => real.startsWith(r)) || !real.endsWith('.jsonl')) return;
@@ -147,6 +148,17 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
       const id = payload.session_id;
       if (typeof id !== 'string' || !id) { res.writeHead(400); return res.end('{}'); }
       lastHookTs = Date.now();
+      if (event === 'PermissionRequest') {
+        const context = readPermissionContext(payload, { home });
+        if (context?.reviewer !== 'user') {
+          // No queue entry, no allow/deny, no ten-minute wait. Codex applies
+          // its own automatic review or normal UI for an unknown context.
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end('{}');
+          log('PB', `permission left to Codex: ${context?.reviewer || 'unknown reviewer'}`);
+          return;
+        }
+      }
       const rec = record(id);
       rec.value.native = true;
       if (event === 'SessionStart' || event === 'UserPromptSubmit') closed.delete(id);

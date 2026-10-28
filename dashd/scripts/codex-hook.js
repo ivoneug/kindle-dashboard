@@ -4,6 +4,7 @@
 // no decision, leaving Codex's own approval flow in charge.
 import http from 'node:http';
 import { codexDecision } from '../src/codex/index.js';
+import { readPermissionContext } from '../src/codex/permissions.js';
 
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf('--port') + 1]) || 8765;
@@ -15,6 +16,12 @@ for await (const chunk of process.stdin) {
 let payload;
 try { payload = JSON.parse(input); } catch { process.stdout.write('{}\n'); process.exit(0); }
 const permission = payload.hook_event_name === 'PermissionRequest';
+// Also guard here so an already running older daemon cannot hold an Auto
+// request while the service is being upgraded/restarted.
+if (permission && readPermissionContext(payload)?.reviewer !== 'user') {
+  process.stdout.write('{}\n');
+  process.exit(0);
+}
 const body = JSON.stringify(Object.fromEntries(['session_id', 'transcript_path', 'cwd', 'hook_event_name',
   'turn_id', 'tool_use_id', 'tool_name', 'tool_input', 'prompt'].filter((k) => k in payload).map((k) => [k, payload[k]])));
 const response = await new Promise((resolve) => {
