@@ -8,6 +8,8 @@ if [ -f "$RUN/client.pid" ] && kill -0 "$(cat "$RUN/client.pid")" 2>/dev/null; t
   echo "dash already running"
   exit 0
 fi
+# A previous partial start must not leave a second key reader behind.
+kill_dash
 
 if [ "$DASH_WIFI" = 1 ] && [ -z "$DASH_TOKEN" ]; then
   echo "Wi-Fi is missing its dashboard token — run kindle-wifi-setup.mjs"

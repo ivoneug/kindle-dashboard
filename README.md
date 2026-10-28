@@ -157,6 +157,46 @@ Kindle забирает кадры через домашний роутер; к�
 кадров по кабелю: `node scripts/kindle-wifi-setup.mjs --usb`, затем deploy и
 перезапуск клиента. Удалять Wi-Fi-профиль Kindle для этого не нужно.
 
+## Автозапуск на Mac и Kindle (M4)
+
+На Mac установи пользовательский LaunchAgent один раз (обычный запуск `npm start`
+перед этим нужно остановить):
+
+```bash
+node scripts/dashd-service.mjs install
+node scripts/dashd-service.mjs status
+node scripts/dashd-service.mjs restart
+# Отключить автозапуск и остановить службу:
+node scripts/dashd-service.mjs uninstall
+```
+
+Демон запускается при входе пользователя в macOS и возвращается после завершения
+процесса. Служба использует абсолютные пути к Node и репозиторию, поэтому nvm и
+интерактивная оболочка ей не нужны. После переноса репозитория или удаления текущей
+версии Node повтори `install`. Настройки читаются из `dashd/.config.json`; токен
+не копируется в plist. Лог: `~/Library/Logs/kindle-dashboard/dashd.log`.
+Служба не удерживает Mac от сна.
+
+На Kindle после `./scripts/kindle-deploy.sh`, через USB SSH:
+
+```bash
+./scripts/kindle-ssh.sh 'sh /mnt/us/dash/autostart.sh enable'
+# Отключить только будущие автозапуски:
+./scripts/kindle-ssh.sh 'sh /mnt/us/dash/autostart.sh disable'
+# Удалить init-скрипт и его ссылки:
+./scripts/kindle-ssh.sh 'sh /mnt/us/dash/autostart.sh remove'
+```
+
+Устанавливается отдельный `/etc/init.d/kindle-dashboard` с запуском в обычном
+runlevel 5, после готовности framework. Amazon-скрипты и USBNetwork не меняются.
+При необходимости rootfs временно перемонтируется для установки, исходный режим
+монтирования восстанавливается. `Home` останавливает dashboard до следующего
+перезапуска Kindle. Для обхода автозапуска создай пустой файл
+`/mnt/us/dash/DISABLED` (на USB-диске: `Kindle/dash/DISABLED`); удали его для возврата.
+Во время загрузки с подключённым USB-диском запуск до четырёх минут ждёт возврата
+userstore устройству. Ручной запуск по-прежнему: `sh /mnt/us/dash/start.sh`.
+Загрузочный лог: `/var/tmp/dash/boot.log`.
+
 ## M1: труба
 
 На Mac запусти `cd dashd && npm start`, на Kindle — `sh /mnt/us/dash/start.sh`. На экране должен появиться тестовый экран. Нажатие любой клавиши показывает её сырой код в блоке LAST KEY на следующем кадре. Выход: `sh /mnt/us/dash/stop.sh` по ssh, после discovery также клавиша `Home`.

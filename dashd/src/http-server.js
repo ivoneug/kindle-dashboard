@@ -172,7 +172,9 @@ export function listen(handler, { port, usbHost, lanHost = '', deviceToken = '',
         return;
       }
       log('!!', `listen ${host}:${port}: ${err.message}`);
-      process.exitCode = 1;
+      // A service manager must see the failure and restart, rather than leave
+      // a second daemon alive with no loopback listener (e.g. port in use).
+      process.exit(1);
     });
     server.listen(port, host, () => {
       if (closing) return server.close();
