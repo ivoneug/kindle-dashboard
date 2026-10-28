@@ -15,6 +15,11 @@
   --wash: #dddddd;    /* tracks, quiet fills */
   --rule: 2px solid var(--ink);
   --rule-light: 2px solid var(--faint);
+  /* The bundled faces are claude-thing's Latin subsets; Cyrillic session names
+     and messages fall through to macOS fonts that have it, picked to sit close
+     to each face (a bare "monospace" lands on a serif). */
+  --sans: "Chakra Petch", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", Menlo, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -24,7 +29,7 @@ html, body {
   overflow: hidden;
   background: var(--paper);
   color: var(--ink);
-  font-family: "Chakra Petch", sans-serif;
+  font-family: var(--sans);
   font-weight: 500;
   -webkit-font-smoothing: antialiased;
 }
@@ -38,7 +43,7 @@ html, body {
   overflow: hidden;
 }
 
-.mono { font-family: "JetBrains Mono", Menlo, monospace; }
+.mono { font-family: var(--mono); }
 
 /* ---- top bar: mark · caps title · count · clock · link lamp ---- */
 .topbar {
@@ -53,13 +58,33 @@ html, body {
 .topbar .title { font-weight: 700; font-size: 22px; letter-spacing: 0.2em; }
 .topbar .tcount { margin-left: 12px; font-weight: 700; font-size: 22px; color: var(--muted); }
 .topbar .spacer { flex: 1; }
-.topbar .clock { font-family: "JetBrains Mono", Menlo, monospace; font-size: 22px; }
+.topbar .waiting {
+  margin-right: 16px;
+  padding: 0 10px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.14em;
+  line-height: 30px;
+}
+.topbar .clock { font-family: var(--mono); font-size: 22px; }
 /* link lamp: filled = Kindle polling, hollow = not heard from */
 .topbar .conn {
   width: 14px; height: 14px; margin-left: 14px;
   border-radius: 50%; border: 2px solid var(--ink);
 }
 .topbar .conn.ok { background: var(--ink); }
+
+/* ---- state lamps: shape, not colour (claude-thing's lamps were hued) ----
+   busy/attention filled, done ticked, idle hollow, ended dashed. currentColor,
+   so a lamp on an inverted tile turns with it. */
+.lamp { width: 18px; height: 18px; flex-shrink: 0; border: 3px solid currentColor; border-radius: 3px; }
+.lamp.busy, .lamp.attention { background: currentColor; }
+.lamp.celebrate { position: relative; }
+.lamp.celebrate::after { content: ''; position: absolute; left: 3px; top: -2px; width: 5px; height: 10px;
+  border: solid currentColor; border-width: 0 3px 3px 0; transform: rotate(45deg); }
+.lamp.ended { border-style: dashed; }
 
 /* ---- engraved section label ---- */
 .label {
@@ -91,12 +116,14 @@ html, body {
   padding: 0 7px;
   border: 2px solid var(--ink);
   border-radius: 5px;
-  font-family: "JetBrains Mono", Menlo, monospace;
+  font-family: var(--mono);
   font-weight: 400;
   font-size: 16px;
 }
 .legend .spacer { flex: 1; }
-.legend .meta { font-family: "JetBrains Mono", Menlo, monospace; font-size: 14px; color: var(--muted); letter-spacing: 0; }
+.legend .item { flex-shrink: 0; }
+.legend .meta { min-width: 0; font-family: var(--mono); font-size: 14px; color: var(--muted); letter-spacing: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---- hazard band: carries over to b/w as-is ---- */
 .hazard {
@@ -121,7 +148,7 @@ html, body {
   gap: 10px;
   padding: 0 8px;
   white-space: nowrap;
-  font-family: "JetBrains Mono", Menlo, monospace;
+  font-family: var(--mono);
   font-size: 14px;
   letter-spacing: 0.1em;
   color: var(--ink);

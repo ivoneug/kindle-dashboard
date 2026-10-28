@@ -16,6 +16,7 @@
     "mock": "CLAUDE_THING_MOCK=1 node src/index.js"
   },
   "dependencies": {
+    "marked": "^18.1.2",
     "playwright-core": "^1.64.1",
     "pngjs": "^7.0.0"
   }

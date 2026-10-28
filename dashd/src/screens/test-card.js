@@ -13,25 +13,25 @@ const CSS = `
 .portrait .col { flex: none; gap: 11px; }
 
 .lastkey { border: 2px solid var(--ink); padding: 10px 12px; }
-.lastkey .code { font-family: "JetBrains Mono", monospace; font-size: 48px; line-height: 1.1;
+.lastkey .code { font-family: var(--mono); font-size: 48px; line-height: 1.1;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lastkey .code.none { font-family: "Chakra Petch", sans-serif; font-size: 19px; letter-spacing: 0.16em;
+.lastkey .code.none { font-family: var(--sans); font-size: 19px; letter-spacing: 0.16em;
   font-weight: 700; color: var(--muted); padding: 14px 0; }
-.history { margin-top: 6px; font-family: "JetBrains Mono", monospace; font-size: 15px; color: var(--ink-3); }
+.history { margin-top: 6px; font-family: var(--mono); font-size: 15px; color: var(--ink-3); }
 .history div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .ramp { display: flex; border: 2px solid var(--ink); }
 .ramp span { flex: 1; height: 40px; display: flex; align-items: flex-end; justify-content: center;
-  font-family: "JetBrains Mono", monospace; font-size: 14px; padding-bottom: 2px; }
+  font-family: var(--mono); font-size: 14px; padding-bottom: 2px; }
 
 .type .h { font-weight: 700; font-size: 19px; letter-spacing: 0.16em; }
 .type .b { font-size: 14px; color: var(--ink-3); }
-.type .m19 { font-family: "JetBrains Mono", monospace; font-size: 19px; }
-.type .m14 { font-family: "JetBrains Mono", monospace; font-size: 14px; }
+.type .m19 { font-family: var(--mono); font-size: 19px; }
+.type .m14 { font-family: var(--mono); font-size: 14px; }
 .type > div { margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .lines { display: flex; flex-direction: column; gap: 6px; }
-.lines .row { display: flex; align-items: center; gap: 10px; font-family: "JetBrains Mono", monospace; font-size: 14px; }
+.lines .row { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 14px; }
 .lines .row b { flex: 1; background: var(--ink); }
 
 .attn { background: var(--ink); color: var(--paper); padding: 10px 12px; display: flex; align-items: center; gap: 12px; }

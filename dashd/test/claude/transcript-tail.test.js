@@ -103,3 +103,16 @@ test('a mode record is not mistaken for a message and harvested for usage', asyn
   assert.equal(d.tokens.in, 100, 'nor disturb the token counters');
   tail.stop();
 });
+
+// dashd: the detail screen shows lastMessage as what Claude said.
+test('the last message is Claude\'s, not a user-side text block', async () => {
+  const store = createStore();
+  const transcriptPath = tmpTranscript([
+    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Fixed the watchdog.' }] } },
+    { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'Note: a file changed on disk' }] } },
+  ]);
+  const tail = startTranscriptTail({ store, sessionId: 'a', transcriptPath });
+  await settle();
+  assert.equal(store.get('a').lastMessage, 'Fixed the watchdog.');
+  tail.stop();
+});

@@ -28,11 +28,14 @@ export function fmtClock(ts = Date.now()) {
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-export function topbar(title, { count, linked } = {}) {
+// waiting: how many asks are waiting on a human; drawn inverted, the e-ink
+// stand-in for claude-thing's "saturated colour means a person is needed".
+export function topbar(title, { count, linked, waiting } = {}) {
   return '<div class="topbar"><span class="mark"></span>' +
     '<span class="title">' + esc(title) + '</span>' +
     (count ? '<span class="tcount">' + esc(count) + '</span>' : '') +
     '<span class="spacer"></span>' +
+    (waiting ? '<span class="waiting">! ' + esc(waiting) + ' WAITING</span>' : '') +
     '<span class="clock">' + fmtClock() + '</span>' +
     '<span class="conn' + (linked ? ' ok' : '') + '"></span></div>';
 }

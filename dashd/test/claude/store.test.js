@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../../src/claude/sessions/store.js';
+import { LAST_MESSAGE_CAP } from '../../src/claude/config.js';
 
 const ONE_SEC = 1000;
 
@@ -211,12 +212,12 @@ test('detail carries the fields the device screen needs', () => {
   const store = createStore();
   store.touch('a', {
     name: 'proj', cwd: '/tmp/proj', model: 'claude-fable-5',
-    currentTool: 'Bash', lastMessage: 'y'.repeat(400), cacheRead: 42,
+    currentTool: 'Bash', lastMessage: 'y'.repeat(LAST_MESSAGE_CAP + 100), cacheRead: 42,
   });
   const d = store.get('a');
   assert.equal(d.cwd, '/tmp/proj');
   assert.equal(d.currentTool, 'Bash');
-  assert.equal(d.lastMessage.length, 200, 'last message is clamped');
+  assert.equal(d.lastMessage.length, LAST_MESSAGE_CAP, 'last message is clamped');
   assert.equal(d.cacheRead, 42);
 });
 

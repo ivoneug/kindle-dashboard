@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../../src/claude/sessions/store.js';
-import { startHooksSource } from '../../src/claude/sessions/source-hooks.js';
+import { startHooksSource, isEnvelope } from '../../src/claude/sessions/source-hooks.js';
 import { markOwnSession } from '../../src/claude/own-sessions.js';
 
 const DAEMON_CWD = '/Users/dev/claude-thing/daemon';
@@ -80,4 +80,12 @@ test('a prompt is kept as lastPrompt, collapsed and capped, for ask intent lines
   const kept = store.raw('p-1').lastPrompt;
   assert.ok(kept.startsWith('reinstall the deps'), 'whitespace collapsed');
   assert.equal(kept.length, 120, 'capped for a single 800px line');
+});
+
+// dashd: machine-made turns are not the user's words.
+test('a task-notification prompt is neither the message nor the intent', () => {
+  assert.ok(isEnvelope('<task-notification>\n<task-id>x</task-id>\n</task-notification>'));
+  assert.ok(isEnvelope('  <command-name>/compact</command-name>  '));
+  assert.ok(!isEnvelope('fix the <div> in Calendar.tsx'));
+  assert.ok(!isEnvelope('сделай детальный экран'));
 });

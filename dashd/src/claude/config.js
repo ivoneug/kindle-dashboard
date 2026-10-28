@@ -67,6 +67,11 @@ export const THINKING_TTL_MS = 10 * 60_000;
 // Ended sessions are dropped the instant they end — no grace period. A tile you
 // can't act on is noise, and a lingering headstone reads as a live session.
 
+// lastMessage feeds the Kindle's session detail screen, which pages through
+// it, so it is kept long; still capped so one pathological message cannot
+// grow without bound.
+export const LAST_MESSAGE_CAP = 4000;
+
 export const MOCK_SESSIONS = process.env.CLAUDE_THING_MOCK === '1';
 
 // Usage screen: real plan figures read from `claude -p "/usage"` once a minute.

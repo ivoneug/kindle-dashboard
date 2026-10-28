@@ -6,6 +6,15 @@ import { ensureTail, stopTail, stopAllTails, transcriptPathFor } from './tails.j
 import { isOwnSession } from '../own-sessions.js';
 import { lookupSession } from '../focus.js';
 import { log } from '../log.js';
+import { LAST_MESSAGE_CAP } from '../config.js';
+
+// A prompt that is one tag-wrapped block from start to end — <task-notification>
+// …</task-notification>, <command-name>…, <system-reminder>… — is Claude Code
+// talking to itself, not the user.
+const ENVELOPE = /^\s*<([a-z][\w-]*)>[\s\S]*<\/\1>\s*$/i;
+export function isEnvelope(prompt) {
+  return ENVELOPE.test(prompt);
+}
 
 export function startHooksSource({ store, queue }) {
   function onHookEvent(event, payload) {
@@ -55,11 +64,22 @@ export function startHooksSource({ store, queue }) {
         // turn carries it as its intent line — a command without what you
         // asked for is an approval made blind. lastMessage gets overwritten by
         // the transcript tail as the turn progresses; this field does not.
-        store.touch(id, {
-          ...base, waitingForInput: false, stoppedTs: null, thinking: true,
-          lastMessage: String(payload.prompt || '').slice(0, 200),
-          lastPrompt: String(payload.prompt || '').replace(/\s+/g, ' ').trim().slice(0, 120),
-        });
+        //
+        // dashd: machine-made turns (background-task notifications, slash
+        // command wrappers, reminders) arrive here as prompts too, wrapped in
+        // XML-ish tags. Nobody typed them, so they become neither the message
+        // on screen nor an ask's intent line.
+        {
+          const prompt = String(payload.prompt || '');
+          const typed = !isEnvelope(prompt);
+          store.touch(id, {
+            ...base, waitingForInput: false, stoppedTs: null, thinking: true,
+            ...(typed ? {
+              lastMessage: prompt.slice(0, LAST_MESSAGE_CAP),
+              lastPrompt: prompt.replace(/\s+/g, ' ').trim().slice(0, 120),
+            } : {}),
+          });
+        }
         // A new prompt means no dialog is up. A declined plan or an Esc'd
         // question fires no PostToolUse, so this is where those asks die.
         if (queue) queue.onQuestionAnswered(payload);

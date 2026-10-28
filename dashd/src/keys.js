@@ -29,6 +29,7 @@ export const ACTIONS = {
   'L-NEXT': 'screen:next', 'R-NEXT': 'screen:next',
   'L-PREV': 'screen:prev', 'R-PREV': 'screen:prev',
   R: 'refresh',
+  MENU: 'menu',        // the M1 test card, as a diagnostic
 };
 
 // "21 1" → {press: true, name: 'Y', action: 'allow'}; unknown codes → nulls.

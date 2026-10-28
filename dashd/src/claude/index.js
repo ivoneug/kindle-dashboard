@@ -67,6 +67,8 @@ export function createClaude({ onChange = () => {}, shouldHold } = {}) {
       res.end('{}');
     },
 
+    // The freshest SessionDetail for one session, null once it is gone.
+    detail: (id) => store.get(id),
     answerPermission: (requestId, decision) => permissionBridge.answer(requestId, decision),
     releasePermissions: (resolution) => permissionBridge.releaseAll(resolution),
     answerQuestion: (id, answers) => queue.answerQuestion(id, answers),

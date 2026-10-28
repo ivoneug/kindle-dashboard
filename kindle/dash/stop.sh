@@ -11,5 +11,6 @@ case "$UI_MODE" in
   *)    killall -CONT cvm 2>/dev/null ;;
 esac
 killall -CONT powerd 2>/dev/null
+lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
 
 echo "dash stopped"

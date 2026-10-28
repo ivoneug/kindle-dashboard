@@ -2,6 +2,7 @@
 // is Claude Code-internal — every field access is defensive.
 
 import fs from 'node:fs';
+import { LAST_MESSAGE_CAP } from '../config.js';
 
 export function startTranscriptTail({ store, sessionId, transcriptPath, onInterrupt }) {
   let offset = 0;
@@ -50,11 +51,14 @@ export function startTranscriptTail({ store, sessionId, transcriptPath, onInterr
     // off it; pass the string through and let the device whitelist.
     if (typeof obj.effort === 'string' && obj.effort) fields.effort = obj.effort;
 
-    // last assistant text snippet
+    // last assistant text — Claude's own words only: user-side records also
+    // carry text blocks (tool output notes, injected reminders), and the detail
+    // screen would show those as if Claude had said them.
     const content = msg.content;
     if (Array.isArray(content)) {
       const text = content.filter((c) => c && c.type === 'text' && c.text).map((c) => c.text).join(' ');
-      if (text) fields.lastMessage = text.slice(0, 200);
+      const fromClaude = obj.type === 'assistant' || msg.role === 'assistant';
+      if (text && fromClaude) fields.lastMessage = text.slice(0, LAST_MESSAGE_CAP);
       // Esc in the terminal kills any open dialog but fires no hook at all —
       // no PostToolUse, no Stop. The transcript's interrupt marker is the only
       // signal that a pending ask just died, so it is surfaced with the line's

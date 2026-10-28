@@ -27,14 +27,17 @@ export function createRenderer({ channel, executablePath } = {}) {
   }
 
   // width × height is the layout size; rotateDeg turns the result onto the
-  // panel afterwards.
+  // panel afterwards. A page that has to measure itself (paging) defines
+  // window.__layout(); it runs once fonts are in, and whatever it returns comes
+  // back as `meta`.
   async function renderOnce(html, { width, height, rotateDeg = 0 }) {
     const p = await ensurePage();
     await p.setViewportSize({ width, height });
     await p.setContent(html, { waitUntil: 'load' });
     await p.evaluate(() => document.fonts.ready);
+    const meta = await p.evaluate(() => (window.__layout ? window.__layout() : null));
     const shot = await p.screenshot({ type: 'png', animations: 'disabled', caret: 'hide' });
-    return screenshotToFrame(shot, { rotateDeg });
+    return { ...screenshotToFrame(shot, { rotateDeg }), meta };
   }
 
   function render(html, opts) {

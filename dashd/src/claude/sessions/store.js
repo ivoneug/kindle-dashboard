@@ -5,6 +5,7 @@
 import {
   SESSION_CAP, SNAPSHOT_DEBOUNCE_MS, BUSY_WINDOW_MS, CELEBRATE_MS,
   AGENT_ACTIVE_TTL_MS, THINKING_TTL_MS, DETAIL_DEBOUNCE_MS, SNAPSHOT_HEARTBEAT_MS,
+  LAST_MESSAGE_CAP,
 } from '../config.js';
 import { contextFraction } from '../context-window.js';
 
@@ -79,7 +80,7 @@ export function createStore() {
       cwd: s.cwd || '',
       startedTs: s.startedTs || s.lastActivityTs,
       currentTool: s.currentTool || null,
-      lastMessage: (s.lastMessage || '').slice(0, 200),
+      lastMessage: (s.lastMessage || '').slice(0, LAST_MESSAGE_CAP),
       permission: s.permission || null,
     };
   }

@@ -45,6 +45,10 @@ export const LONG_POLL_MS = Number(pick('DASHD_LONG_POLL_MS', 'longPollMs', 25_0
 // Bursts of state changes collapse into one frame; e-ink can't show more than
 // about one per second anyway.
 export const RENDER_DEBOUNCE_MS = Number(pick('DASHD_RENDER_DEBOUNCE_MS', 'renderDebounceMs', 400));
+// Busy sessions change the Sessions screen with every tool call — several
+// times a second. Frames driven by those events come no closer together than
+// this; a key press is answered at once regardless.
+export const MIN_FRAME_INTERVAL_MS = Number(pick('DASHD_MIN_FRAME_INTERVAL_MS', 'minFrameIntervalMs', 3_000));
 // The Kindle counts as connected while it has polled this recently.
 export const LINK_ALIVE_MS = LONG_POLL_MS + 10_000;
 

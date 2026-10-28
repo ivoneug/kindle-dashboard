@@ -4,6 +4,10 @@
 // tab. Terminal.app is the only mainstream emulator that exposes `tty` on its
 // tabs, so other emulators fall back to raising the app.
 //
+// dashd addition: a session running inside the Claude desktop app has no tty
+// at all; the app is raised instead (`open -a`, which needs no Automation
+// grant). Which of its sessions is in front is up to the app.
+//
 // Permissions: raising Terminal needs Automation → Terminal. Typing a keystroke
 // additionally needs Automation → System Events, which macOS may deny. When it
 // is denied we say so and stop — the window is focused, and the user finishes
@@ -35,6 +39,14 @@ function osa(script, timeout = 5000) {
       } else {
         resolve({ ok: true, out: String(stdout).trim() });
       }
+    });
+  });
+}
+
+function openApp(name) {
+  return new Promise((resolve) => {
+    execFile('open', ['-a', name], { timeout: 5000 }, (err, stdout, stderr) => {
+      resolve(err ? { ok: false, error: String(stderr || err.message).trim().split('\n')[0] } : { ok: true });
     });
   });
 }
@@ -109,6 +121,7 @@ async function ownerApp(pid) {
     if (/Ghostty/.test(comm)) return 'Ghostty';
     if (/WezTerm/.test(comm)) return 'WezTerm';
     if (/Code Helper|Visual Studio Code/.test(comm)) return 'Code';
+    if (/\/Claude\.app\/Contents\/MacOS\/Claude$/.test(comm)) return 'Claude';
     const ppid = Number(ppidStr);
     if (!ppid || ppid <= 1) return null;
     current = ppid;
@@ -169,6 +182,13 @@ export function createFocus() {
 
     const tty = await ttyFor(target.pid);
     if (!tty) {
+      if (await ownerApp(target.pid) === 'Claude') {
+        const r = await openApp('Claude');
+        if (r.ok) log('FC', `raised Claude app for ${target.name || sessionId.slice(0, 8)}`);
+        return r.ok
+          ? { focused: true, app: 'Claude', exact: false, reason: 'Claude app raised (session not targeted)' }
+          : { focused: false, reason: r.error };
+      }
       return {
         focused: false,
         reason: viaHost ? 'background agent — parked window is gone' : 'session has no tty',
