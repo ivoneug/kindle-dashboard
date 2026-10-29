@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderBattery, BATTERY_CSS } from './battery.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const THEME = path.join(__dirname, '..', 'theme');
@@ -11,7 +12,7 @@ const THEME = path.join(__dirname, '..', 'theme');
 let css = null;
 function themeCss() {
   if (!css) {
-    css = fs.readFileSync(path.join(THEME, 'fonts.css'), 'utf8') +
+    css = fs.readFileSync(path.join(THEME, 'fonts.css'), 'utf8') + BATTERY_CSS +
       fs.readFileSync(path.join(THEME, 'eink.css'), 'utf8');
   }
   return css;
@@ -28,16 +29,22 @@ export function fmtClock(ts = Date.now()) {
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-// waiting: how many asks are waiting on a human; drawn inverted, the e-ink
-// stand-in for claude-thing's "saturated colour means a person is needed".
-export function topbar(title, { count, linked, waiting } = {}) {
+export function topbarStatus({ linked, battery }) {
+  return '<span class="topbar-status"><span class="clock">' + fmtClock() + '</span>' +
+    '<span class="conn' + (linked ? ' ok' : '') + '"></span>' + renderBattery(battery) + '</span>';
+}
+
+// Omit battery for the clock-only header; null shows an unknown battery level.
+// waiting counts asks that need a human, drawn inverted for e-ink.
+export function topbar(title, { count, linked, waiting, battery } = {}) {
   return '<div class="topbar"><span class="mark"></span>' +
     '<span class="title">' + esc(title) + '</span>' +
     (count ? '<span class="tcount">' + esc(count) + '</span>' : '') +
     '<span class="spacer"></span>' +
     (waiting ? '<span class="waiting">! ' + esc(waiting) + ' WAITING</span>' : '') +
-    '<span class="clock">' + fmtClock() + '</span>' +
-    '<span class="conn' + (linked ? ' ok' : '') + '"></span></div>';
+    (battery !== undefined ? topbarStatus({ linked, battery }) :
+      '<span class="clock">' + fmtClock() + '</span>' +
+      '<span class="conn' + (linked ? ' ok' : '') + '"></span>') + '</div>';
 }
 
 // items: [[keyLabel, text], …]; meta: right-aligned small print.

@@ -148,7 +148,7 @@ window.__layout = function () {
 };`;
 
 // view: { session: SessionDetail, index, total, msgPage, linked, waiting,
-//         orientation, note }
+//         orientation, note, battery }
 export function renderDetail(view, { width, height }) {
   const d = view.session;
   const now = Date.now();
@@ -198,7 +198,7 @@ export function renderDetail(view, { width, height }) {
     planHtml + (message ? renderMarkdown(message) : (plan.length ? '' : 'nothing yet')) + '</div></div></div>';
 
   const html = '<div class="screen detail-screen' + (view.provider === 'codex' ? ' has-compact' : '') + '">' +
-    topbar('SESSION', { count: (view.index + 1) + '/' + view.total, linked: view.linked, waiting: view.waiting }) +
+    topbar('SESSION', { count: (view.index + 1) + '/' + view.total, linked: view.linked, waiting: view.waiting, battery: view.battery ?? null }) +
     '<div class="detail">' + info + msg + '</div>' +
     legend([['●', 'raise'], ['←→', 'session'], ['↑↓', 'page'], ['BACK', 'list'], ...(view.provider === 'codex' ? [['C', 'compact']] : [])], view.note || '') +
     '</div><script>' + LAYOUT + '</script>';

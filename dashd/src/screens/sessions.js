@@ -6,29 +6,24 @@
 // lamps differ by shape (busy filled, done ticked, idle hollow), the selected
 // tile gets the heavy frame, and nothing animates.
 
-import { esc, fmtClock, legend, contextMeter, page } from './page.js';
+import { esc, topbarStatus, legend, contextMeter, page } from './page.js';
 import { stateLabel, modeLabel, effortLabel, fmtDuration, compactLabel } from './helpers.js';
 import { frameFor } from './sprites.js';
 import { mascot } from './mascots.js';
 import { renderMarkdownPreview } from './markdown.js';
-import { renderBattery, BATTERY_CSS } from './battery.js';
 
 export const PER_PAGE = 4;
 
 const CSS = `
-${BATTERY_CSS}
 .sessions-topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; }
-.sessions-heading, .sessions-status { display: flex; align-items: center; gap: 12px; min-width: 0; white-space: nowrap; }
+.sessions-heading { display: flex; align-items: center; gap: 12px; min-width: 0; white-space: nowrap; }
 .sessions-heading .mark { flex-shrink: 0; margin: 0; }
 .sessions-heading .title { letter-spacing: .12em; }
 .sessions-heading .tcount { margin: 0; }
 .sessions-heading .live-count { color: var(--ink); }
 .sessions-heading .waiting { margin: 0; padding: 0 6px; letter-spacing: 0; }
 .weekly-usage { font: 500 22px/1 var(--mono); white-space: nowrap; }
-.sessions-status { justify-self: end; gap: 8px; }
-.sessions-status .conn { flex: none; width: 10px; height: 10px; margin: 0; }
-.sessions-status .battery { width: auto; margin: 0; gap: 4px; }
-.sessions-status .battery-percent { min-width: 0; }
+.sessions-topbar .topbar-status { justify-self: end; }
 .sessions-screen .legend { gap: 10px; font-size: 15px; letter-spacing: .03em; }
 .sessions-screen .legend .item { gap: 6px; white-space: nowrap; }
 .sessions-screen .legend .key { min-width: 28px; height: 28px; padding: 0 5px; font-size: 14px; }
@@ -151,8 +146,7 @@ function sessionsTopbar(view, count) {
     count + '/<span class="live-count">' + live + '</span></span>' +
     (view.waiting ? '<span class="waiting" aria-label="' + esc(view.waiting) + ' waiting">! ' + esc(view.waiting) + '</span>' : '') + '</span>' +
     '<span class="weekly-usage" aria-label="7-day limit used ' + pct + '%">7D ' + pct + '%</span>' +
-    '<span class="sessions-status"><span class="clock">' + fmtClock() + '</span>' +
-    '<span class="conn' + (view.linked ? ' ok' : '') + '"></span>' + renderBattery(view.battery) + '</span></div>';
+    topbarStatus(view) + '</div>';
 }
 
 // view: { sessions, details, selected, linked, waiting, orientation, note, usage, battery }

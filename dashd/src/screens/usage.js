@@ -79,7 +79,7 @@ function breakdown(u) {
     '</div>';
 }
 
-// view: { usage, linked, waiting, orientation, note }
+// view: { usage, linked, waiting, orientation, note, battery }
 export function renderUsage(view, { width, height }) {
   const u = view.usage;
   let body;
@@ -90,7 +90,7 @@ export function renderUsage(view, { width, height }) {
   }
   const meta = view.note || (u ? (u.updatedLabel || '') + (u.stale ? ' · stale' : '') : '');
   const html = '<div class="screen">' +
-    topbar('USAGE', { linked: view.linked, waiting: view.waiting }) +
+    topbar('USAGE', { linked: view.linked, waiting: view.waiting, battery: view.battery ?? null }) +
     body +
     legend([['S', 'sessions']], meta) +
     '</div>';
