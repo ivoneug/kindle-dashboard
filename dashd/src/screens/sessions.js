@@ -29,6 +29,9 @@ ${BATTERY_CSS}
 .sessions-status .conn { flex: none; width: 10px; height: 10px; margin: 0; }
 .sessions-status .battery { width: auto; margin: 0; gap: 4px; }
 .sessions-status .battery-percent { min-width: 0; }
+.sessions-screen .legend { gap: 10px; font-size: 15px; letter-spacing: .03em; }
+.sessions-screen .legend .item { gap: 6px; white-space: nowrap; }
+.sessions-screen .legend .key { min-width: 28px; height: 28px; padding: 0 5px; font-size: 14px; }
 
 .grid { flex: 1; min-height: 0; display: grid; gap: 10px; padding: 12px 18px; }
 .portrait .grid { grid-template-rows: repeat(4, 1fr); }
@@ -172,7 +175,7 @@ export function renderSessions(view, { width, height }) {
 
   const provider = view.provider ? view.provider.toUpperCase() : '';
   const meta = view.note || [provider, pages > 1 ? 'PAGE ' + (pageNo + 1) + '/' + pages : ''].filter(Boolean).join(' · ');
-  const html = '<div class="screen">' +
+  const html = '<div class="screen sessions-screen">' +
     sessionsTopbar(view, n) +
     body +
     legend([['↑↓', 'select'], ['●', 'open'], ['U', 'usage'], ...(view.provider === 'codex' ? [['C', 'compact']] : [])], meta) +

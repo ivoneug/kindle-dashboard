@@ -42,6 +42,10 @@ const CSS = `
 .activity.ask { display: inline-block; align-self: flex-start; padding: 0 8px; background: var(--ink); color: var(--paper);
   font-family: var(--sans); font-weight: 700; letter-spacing: 0.12em; line-height: 28px; }
 .compact-status { min-width: 0; font: 700 14px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-screen .legend .item { white-space: nowrap; }
+.portrait .detail-screen.has-compact .legend { gap: 10px; font-size: 15px; letter-spacing: .03em; }
+.portrait .detail-screen.has-compact .legend .item { gap: 6px; }
+.portrait .detail-screen.has-compact .legend .key { min-width: 28px; height: 28px; padding: 0 5px; font-size: 14px; }
 
 .info .ctxtrack { height: 28px; }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); border: var(--rule); }
@@ -193,7 +197,7 @@ export function renderDetail(view, { width, height }) {
     '<div class="msgbox"><div class="msgcols' + (message || plan.length ? '' : ' none') + '" id="msg" data-page="' + (view.msgPage || 0) + '">' +
     planHtml + (message ? renderMarkdown(message) : (plan.length ? '' : 'nothing yet')) + '</div></div></div>';
 
-  const html = '<div class="screen">' +
+  const html = '<div class="screen detail-screen' + (view.provider === 'codex' ? ' has-compact' : '') + '">' +
     topbar('SESSION', { count: (view.index + 1) + '/' + view.total, linked: view.linked, waiting: view.waiting }) +
     '<div class="detail">' + info + msg + '</div>' +
     legend([['●', 'raise'], ['←→', 'session'], ['↑↓', 'page'], ['BACK', 'list'], ...(view.provider === 'codex' ? [['C', 'compact']] : [])], view.note || '') +
