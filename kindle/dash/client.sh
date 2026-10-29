@@ -12,8 +12,19 @@ OFFLINE=0
 DELAY=2
 OFFLINE_BATTERY=
 OFFLINE_UPDATES=0
+LAST_FAILURE=
+
+client_log() {
+  printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
 
 lost_connection() {
+  # Log stages and exit codes, never request URLs (which contain the token).
+  # Repeated failures of the same kind should not fill the Kindle's tmpfs.
+  if [ "$OFFLINE" = 0 ] || [ "$LAST_FAILURE" != "$1" ]; then
+    client_log "offline: $1; retrying automatically"
+  fi
+  LAST_FAILURE=$1
   V=0
   EPOCH=
   rm -f "$RUN/shown" "$RUN/version"
@@ -36,7 +47,6 @@ lost_connection() {
       eips 2 16 'Home: return to Kindle' >/dev/null 2>&1
     fi
     OFFLINE_BATTERY=$BATTERY_KEY
-    [ "$OFFLINE" = 1 ] || echo 'offline; retrying automatically'
     OFFLINE=1
   fi
   # wifid owns reconnection; restore its radio only if explicitly disabled.
@@ -51,18 +61,22 @@ lost_connection() {
 while :; do
   # Normal long-poll is 25s. A vanished/sleeping Mac cannot strand wget.
   read_battery
-  fetch 32 "$BASE/version?since=$V&epoch=$EPOCH&battery=$BATTERY_LEVEL&charging=$BATTERY_CHARGING" "$RUN/version.resp" || { lost_connection; continue; }
+  fetch 32 "$BASE/version?since=$V&epoch=$EPOCH&battery=$BATTERY_LEVEL&charging=$BATTERY_CHARGING" "$RUN/version.resp" || {
+    FETCH_EXIT=$?
+    lost_connection "version request failed (exit $FETCH_EXIT)"
+    continue
+  }
   RESP=$(cat "$RUN/version.resp")
   set -- $RESP
   NEW=$1
-  case "$NEW" in ''|*[!0-9]*|0) lost_connection; continue ;; esac
+  case "$NEW" in ''|*[!0-9]*|0) lost_connection 'invalid version reply'; continue ;; esac
   NEXT_EPOCH=
   FULL=0
   for FIELD in "$@"; do
     case "$FIELD" in full) FULL=1 ;; epoch=*) NEXT_EPOCH=${FIELD#epoch=} ;; esac
   done
-  case "$NEXT_EPOCH" in ''|*[!0-9a-f]*) lost_connection; continue ;; esac
-  [ "${#NEXT_EPOCH}" = 32 ] || { lost_connection; continue; }
+  case "$NEXT_EPOCH" in ''|*[!0-9a-f]*) lost_connection 'invalid daemon epoch'; continue ;; esac
+  [ "${#NEXT_EPOCH}" = 32 ] || { lost_connection 'invalid daemon epoch length'; continue; }
   if [ "$NEW" = "$V" ] && [ "$NEXT_EPOCH" = "$EPOCH" ] && [ "$OFFLINE" = 0 ]; then
     DELAY=2
     continue
@@ -74,17 +88,20 @@ while :; do
     else
       eips $EIPS_PARTIAL -g "$RUN/frame.tmp" >/dev/null 2>&1
     fi
-    if [ "$?" != 0 ]; then lost_connection; continue; fi
+    DRAW_EXIT=$?
+    if [ "$DRAW_EXIT" != 0 ]; then lost_connection "frame draw failed (exit $DRAW_EXIT)"; continue; fi
     mv "$RUN/frame.tmp" "$RUN/frame.png"
     V=$NEW
     EPOCH=$NEXT_EPOCH
     printf '%s %s\n' "$V" "$EPOCH" > "$RUN/shown.tmp"
     mv "$RUN/shown.tmp" "$RUN/shown"
     echo "$V" > "$RUN/version"
-    [ "$OFFLINE" = 0 ] || echo 'connected; screen restored'
+    [ "$OFFLINE" = 0 ] || client_log "connected; screen restored (v$V)"
     OFFLINE=0
+    LAST_FAILURE=
     DELAY=2
   else
-    lost_connection
+    FETCH_EXIT=$?
+    lost_connection "frame download failed (exit $FETCH_EXIT)"
   fi
 done
