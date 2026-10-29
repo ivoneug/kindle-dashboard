@@ -175,6 +175,7 @@ function screen(box) {
       return {
         html: renderSessions({
           ...view,
+          usage: agent.state.usage,
           sessions,
           details: agent.state.details,
           selected: ui.selectedIndex(sessions),
@@ -233,7 +234,7 @@ const handler = createHandler({
   onBattery(battery) {
     const changed = battery.level !== state.battery?.level || battery.charging !== state.battery?.charging;
     state.battery = { ...battery, updatedTs: Date.now() };
-    if (changed && ui.screen === 'ambient') scheduleRender();
+    if (changed && (ui.screen === 'ambient' || ui.screen === 'sessions')) scheduleRender();
   },
   onPoll(local, peer) {
     if (local) return;

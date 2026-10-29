@@ -12,7 +12,7 @@ export function normalizeUsage(result, now = Date.now()) {
       const mins = w.windowDurationMins ?? w.window_minutes;
       const window = mins === 10080 ? 'WEEKLY' : mins === 300 ? '5 HOURS' : mins ? `${mins} MIN` : slot.toUpperCase();
       const reset = w.resetsAt ?? w.resets_at;
-      limits.push({ label: `${bucket.limitName || bucket.limit_name || key} · ${window}`,
+      limits.push({ key, windowMinutes: mins ?? null, label: `${bucket.limitName || bucket.limit_name || key} · ${window}`,
         used: Math.max(0, Math.min(1, used / 100)),
         detail: reset ? 'resets ' + new Date(reset * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '' });
     }

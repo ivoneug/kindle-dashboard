@@ -6,15 +6,29 @@
 // lamps differ by shape (busy filled, done ticked, idle hollow), the selected
 // tile gets the heavy frame, and nothing animates.
 
-import { esc, topbar, legend, contextMeter, page } from './page.js';
+import { esc, fmtClock, legend, contextMeter, page } from './page.js';
 import { stateLabel, modeLabel, effortLabel, fmtDuration } from './helpers.js';
 import { frameFor } from './sprites.js';
 import { mascot } from './mascots.js';
 import { renderMarkdownPreview } from './markdown.js';
+import { renderBattery, BATTERY_CSS } from './battery.js';
 
 export const PER_PAGE = 4;
 
 const CSS = `
+${BATTERY_CSS}
+.sessions-topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; }
+.sessions-heading, .sessions-status { display: flex; align-items: center; gap: 12px; min-width: 0; white-space: nowrap; }
+.sessions-heading .mark { flex-shrink: 0; margin: 0; }
+.sessions-heading .title { letter-spacing: .12em; }
+.sessions-heading .tcount { margin: 0; }
+.sessions-heading .waiting { margin: 0; padding: 0 6px; letter-spacing: 0; }
+.weekly-usage { font: 500 22px/1 var(--mono); white-space: nowrap; }
+.sessions-status { justify-self: end; gap: 8px; }
+.sessions-status .conn { flex: none; width: 10px; height: 10px; margin: 0; }
+.sessions-status .battery { width: auto; margin: 0; gap: 4px; }
+.sessions-status .battery-percent { min-width: 0; }
+
 .grid { flex: 1; min-height: 0; display: grid; gap: 10px; padding: 12px 18px; }
 .portrait .grid { grid-template-rows: repeat(4, 1fr); }
 .landscape .grid { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
@@ -118,7 +132,24 @@ function tile(s, d, selected, now, provider) {
     '</div>';
 }
 
-// view: { sessions, details, selected, linked, waiting, orientation, note }
+function sessionsTopbar(view, count) {
+  const limits = (view.usage?.limits || []).filter((l) => Number.isFinite(l.used));
+  // Prefer the main Codex bucket or Claude's combined week, never the 5h window
+  // or a model-specific Claude limit. Window metadata survives custom labels.
+  const weekly = limits.find((l) => l.key === 'codex' && l.windowMinutes === 10080) ||
+    limits.find((l) => l.windowMinutes === 10080) ||
+    limits.find((l) => l.key === 'week-all-models' || l.key === 'week');
+  const pct = weekly ? Math.round(Math.max(0, Math.min(1, weekly.used)) * 100) : '--';
+  return '<div class="topbar sessions-topbar">' +
+    '<span class="sessions-heading"><span class="mark"></span>' +
+    '<span class="title">SESS</span><span class="tcount">' + count + '</span>' +
+    (view.waiting ? '<span class="waiting" aria-label="' + esc(view.waiting) + ' waiting">! ' + esc(view.waiting) + '</span>' : '') + '</span>' +
+    '<span class="weekly-usage" aria-label="7-day limit used ' + pct + '%">7D ' + pct + '%</span>' +
+    '<span class="sessions-status"><span class="clock">' + fmtClock() + '</span>' +
+    '<span class="conn' + (view.linked ? ' ok' : '') + '"></span>' + renderBattery(view.battery) + '</span></div>';
+}
+
+// view: { sessions, details, selected, linked, waiting, orientation, note, usage, battery }
 export function renderSessions(view, { width, height }) {
   const n = view.sessions.length;
   const pages = Math.max(1, Math.ceil(n / PER_PAGE));
@@ -139,7 +170,7 @@ export function renderSessions(view, { width, height }) {
   const provider = view.provider ? view.provider.toUpperCase() : '';
   const meta = view.note || [provider, pages > 1 ? 'PAGE ' + (pageNo + 1) + '/' + pages : ''].filter(Boolean).join(' · ');
   const html = '<div class="screen">' +
-    topbar('SESSIONS', { count: n ? String(n) : '', linked: view.linked, waiting: view.waiting }) +
+    sessionsTopbar(view, n) +
     body +
     legend([['↑↓', 'select'], ['●', 'open'], ['U', 'usage']], meta) +
     '</div>';
