@@ -247,7 +247,7 @@ Use the portrait/landscape buttons in the preview to compare orientations; each 
 
 ## Screens and keys (M2)
 
-- **Sessions.** Four session tiles stacked in portrait, or a 2×2 grid in landscape. Additional sessions are split into pages. The top bar shows `SESS` and the session count on the left, weekly limit consumption as `7D …%` in the center, and the clock and Kindle battery on the right. Unknown usage is shown as `7D --%`. An inverted tile means ATTENTION: the session is waiting for a person. The state indicator is filled while working, checked when finished, hollow when idle, and dashed when the session has ended. A thick border marks the selected tile.
+- **Sessions.** Four session tiles stacked in portrait, or a 2×2 grid in landscape. Additional sessions are split into pages. The top bar shows `SESS total/active` on the left: the total number of listed sessions, followed by the number currently working or waiting for an answer or approval, across all pages. Weekly limit consumption appears as `7D …%` in the center, with the clock and Kindle battery on the right. Unknown usage is shown as `7D --%`. An inverted tile means ATTENTION: the session is waiting for a person. The state indicator is filled while working, checked when finished, hollow when idle, and dashed when the session has ended. A thick border marks the selected tile.
 - **Session details.** Folder, model, elapsed time, current tool, context, and tokens. The latest message is shown in full across navigable pages.
 - **Usage.** Limit bars from `claude /usage`, with ALL CLEAR / RUNNING OUT / OUT OF USAGE thresholds and a 24-hour breakdown.
 

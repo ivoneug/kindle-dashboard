@@ -22,6 +22,7 @@ ${BATTERY_CSS}
 .sessions-heading .mark { flex-shrink: 0; margin: 0; }
 .sessions-heading .title { letter-spacing: .12em; }
 .sessions-heading .tcount { margin: 0; }
+.sessions-heading .live-count { color: var(--ink); }
 .sessions-heading .waiting { margin: 0; padding: 0 6px; letter-spacing: 0; }
 .weekly-usage { font: 500 22px/1 var(--mono); white-space: nowrap; }
 .sessions-status { justify-self: end; gap: 8px; }
@@ -133,6 +134,7 @@ function tile(s, d, selected, now, provider) {
 }
 
 function sessionsTopbar(view, count) {
+  const live = view.sessions.filter((s) => s.state === 'busy' || s.state === 'attention').length;
   const limits = (view.usage?.limits || []).filter((l) => Number.isFinite(l.used));
   // Prefer the main Codex bucket or Claude's combined week, never the 5h window
   // or a model-specific Claude limit. Window metadata survives custom labels.
@@ -142,7 +144,8 @@ function sessionsTopbar(view, count) {
   const pct = weekly ? Math.round(Math.max(0, Math.min(1, weekly.used)) * 100) : '--';
   return '<div class="topbar sessions-topbar">' +
     '<span class="sessions-heading"><span class="mark"></span>' +
-    '<span class="title">SESS</span><span class="tcount">' + count + '</span>' +
+    '<span class="title">SESS</span><span class="tcount" aria-label="' + count + ' sessions, ' + live + ' working or waiting">' +
+    count + '/<span class="live-count">' + live + '</span></span>' +
     (view.waiting ? '<span class="waiting" aria-label="' + esc(view.waiting) + ' waiting">! ' + esc(view.waiting) + '</span>' : '') + '</span>' +
     '<span class="weekly-usage" aria-label="7-day limit used ' + pct + '%">7D ' + pct + '%</span>' +
     '<span class="sessions-status"><span class="clock">' + fmtClock() + '</span>' +
