@@ -9,6 +9,8 @@ import { normalizeUsage } from '../../src/codex/usage.js';
 import { codexDecision, createCodex } from '../../src/codex/index.js';
 import { sessionName, createTitleIndex } from '../../src/codex/titles.js';
 import { mergeCodexHooks } from '../../scripts/codex-hooks-config.js';
+import { renderDetail } from '../../src/screens/detail.js';
+import { renderSessions } from '../../src/screens/sessions.js';
 
 const record = (type, payload) => ({ type, timestamp: '2026-10-29T00:00:00Z', payload });
 
@@ -58,6 +60,64 @@ test('Codex lifecycle, plan and tool output become dashboard detail', () => {
   applyRecord(s, record('event_msg', { type: 'task_complete', last_agent_message: '**Готово**' }));
   assert.equal(s.thinking, false);
   assert.equal(s.lastMessage, '**Готово**');
+});
+
+test('scheduled heartbeat replies show only message Markdown in details and tiles', () => {
+  const message = '**Новых PR для ревью нет**; ожидающих твоего решения тоже нет.\n\n- Проверено `main`';
+  const envelope = '<heartbeat><automation_id>tweek-pr-review</automation_id><decision>DONT_NOTIFY</decision><message>' + message + '</message></heartbeat>';
+  for (const o of [
+    record('event_msg', { type: 'agent_message', message: envelope }),
+    record('response_item', { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: envelope }] }),
+    record('event_msg', { type: 'task_complete', last_agent_message: envelope }),
+    record('event_msg', { type: 'turn_aborted', last_agent_message: envelope }),
+  ]) {
+    const s = { id: 'review', name: 'Ревью PR Tweek', state: 'idle' };
+    applyRecord(s, o);
+    assert.equal(s.lastMessage, message);
+    const size = { width: 600, height: 800 };
+    const detail = renderDetail({ session: s, index: 0, total: 1, orientation: 'portrait' }, size);
+    const tiles = renderSessions({ sessions: [s], details: { review: s }, selected: 0, orientation: 'portrait' }, size);
+    for (const html of [detail, tiles]) {
+      assert.match(html, /<strong>Новых PR для ревью нет<\/strong>/);
+      assert.match(html, /<code>main<\/code>/);
+      assert.doesNotMatch(html, /heartbeat|automation_id|DONT_NOTIFY|tweek-pr-review|&lt;message&gt;/);
+    }
+    assert.match(detail, /<ul>\s*<li>/);
+    assert.match(tiles, /▪ Проверено/);
+  }
+});
+
+test('heartbeat extraction accepts metadata order and caps the readable message after extraction', () => {
+  const s = {};
+  const message = 'я'.repeat(4100);
+  applyRecord(s, record('event_msg', { type: 'agent_message', message:
+    '\n<heartbeat>\n<decision>NOTIFY</decision>\n<message>\n' + message +
+    '\n</message>\n<automation_id>review</automation_id>\n</heartbeat>\n' }));
+  assert.equal(s.lastMessage, message.slice(0, 4000));
+});
+
+test('heartbeat handling preserves examples, malformed envelopes and literal HTML safely', () => {
+  const envelope = '<heartbeat><automation_id>review</automation_id><decision>DONT_NOTIFY</decision><message>Ready</message></heartbeat>';
+  for (const text of [
+    'Example: ' + envelope,
+    '```xml\n' + envelope + '\n```',
+    '`' + envelope + '`',
+    envelope.slice(0, -12),
+    envelope.replace('<decision>', '<unknown>').replace('</decision>', '</unknown>'),
+    'see <task-id>x</task-id> and <script>alert(1)</script>',
+  ]) {
+    const s = {};
+    applyRecord(s, record('event_msg', { type: 'agent_message', message: text }));
+    assert.equal(s.lastMessage, text);
+  }
+  const s = { id: 'review', name: 'Review', state: 'idle' };
+  applyRecord(s, record('event_msg', { type: 'agent_message', message:
+    '<heartbeat><message>**Ready**\n\n```html\n<img src=x onerror=alert(1)>\n```\n\n<script>alert(1)</script></message></heartbeat>' }));
+  const html = renderDetail({ session: s, index: 0, total: 1, orientation: 'portrait' }, { width: 600, height: 800 });
+  assert.match(html, /<strong>Ready<\/strong>/);
+  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<img\b|<script>alert/);
 });
 
 test('context uses occupancy from last turn, totals remain lifetime counts', () => {

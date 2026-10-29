@@ -8,6 +8,18 @@ const safeJson = (s) => { try { return JSON.parse(s); } catch { return null; } }
 const textOf = (content) => (Array.isArray(content) ? content : []).filter((c) => ['output_text', 'text', 'input_text'].includes(c.type)).map((c) => c.text || '').join('\n');
 const stamp = (o) => Date.parse(o.timestamp) || 0;
 
+// Scheduled chats can return a service envelope instead of plain Markdown.
+// Only unwrap a complete heartbeat: IDs and notification decisions are not
+// prose. Code examples and ordinary HTML still go to the escaped renderer.
+const HEARTBEAT_META = String.raw`(?:<automation_id>[^<]*</automation_id>|<decision>[^<]*</decision>)\s*`;
+const HEARTBEAT_MESSAGE = new RegExp(String.raw`^\s*<heartbeat>\s*(?:${HEARTBEAT_META})*<message>([\s\S]*?)</message>\s*(?:${HEARTBEAT_META})*</heartbeat>\s*$`);
+
+function messageText(value) {
+  const text = String(value);
+  const heartbeat = HEARTBEAT_MESSAGE.exec(text);
+  return (heartbeat ? heartbeat[1].trim() : text).slice(0, LAST_MESSAGE_CAP);
+}
+
 export function questionFrom(input, id, createdTs) {
   if (!Array.isArray(input?.questions)) return null;
   return { kind: 'question', id, createdTs, questions: input.questions.map((q) => ({
@@ -40,10 +52,10 @@ export function applyRecord(s, o, { onUsage = () => {} } = {}) {
       case 'turn_aborted':
         s.thinking = false; s.stoppedTs = ts; s.currentTool = null; s.activity = null; s.waitingForInput = false;
         s.question = null;
-        if (p.last_agent_message) s.lastMessage = String(p.last_agent_message).slice(0, LAST_MESSAGE_CAP);
+        if (p.last_agent_message) s.lastMessage = messageText(p.last_agent_message);
         break;
       case 'agent_message':
-        if (p.message) s.lastMessage = String(p.message).slice(0, LAST_MESSAGE_CAP);
+        if (p.message) s.lastMessage = messageText(p.message);
         break;
       case 'user_message':
         if (p.message) s.lastPrompt = String(p.message).replace(/\s+/g, ' ').slice(0, 120);
@@ -61,7 +73,7 @@ export function applyRecord(s, o, { onUsage = () => {} } = {}) {
   } else if (o.type === 'response_item') {
     if (p.type === 'message' && p.role === 'assistant') {
       const text = textOf(p.content);
-      if (text) s.lastMessage = text.slice(0, LAST_MESSAGE_CAP);
+      if (text) s.lastMessage = messageText(text);
     }
     if (['function_call', 'custom_tool_call'].includes(p.type)) {
       const name = p.name || 'tool';
