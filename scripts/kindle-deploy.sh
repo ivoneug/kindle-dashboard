@@ -21,13 +21,13 @@ node dashd/scripts/device-assets.js >/dev/null
 
 if [ -d /Volumes/Kindle ]; then
   mkdir -p /Volumes/Kindle/dash
-  cp -X kindle/dash/* /Volumes/Kindle/dash/
+  cp -RX kindle/dash/* /Volumes/Kindle/dash/
   # macOS still leaves AppleDouble ._ files on FAT; they are noise there.
   rm -f /Volumes/Kindle/dash/._*
   echo "copied to /Volumes/Kindle/dash — eject the Kindle before enabling usbNetwork"
 else
   ssh "${SSH_OPTS[@]}" "root@$KINDLE" 'mkdir -p /mnt/us/dash'
   # -O: the legacy scp protocol, no sftp-server needed on the Kindle.
-  scp -O "${SSH_OPTS[@]}" kindle/dash/* "root@$KINDLE:/mnt/us/dash/"
+  scp -O -r "${SSH_OPTS[@]}" kindle/dash/* "root@$KINDLE:/mnt/us/dash/"
   echo "copied to root@$KINDLE:/mnt/us/dash"
 fi

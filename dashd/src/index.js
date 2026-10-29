@@ -32,6 +32,7 @@ const state = {
   lastPollTs: 0,     // last /version from the Kindle (not from the preview)
   lastPollAddress: null,
   lastPollHost: null,
+  battery: null,
 };
 
 const ui = createUi({ ambientAfterMs: AMBIENT_AFTER_MS });
@@ -143,6 +144,7 @@ function screen(box) {
     linked: lastLinked,
     waiting: asks.length,
     note: ui.note(),
+    battery: state.battery,
   };
   switch (ui.screen) {
     case 'ambient':
@@ -228,6 +230,11 @@ const handler = createHandler({
   lanHost: LAN_HOST,
   deviceToken: DEVICE_TOKEN,
   longPollMs: LONG_POLL_MS,
+  onBattery(battery) {
+    const changed = battery.level !== state.battery?.level || battery.charging !== state.battery?.charging;
+    state.battery = { ...battery, updatedTs: Date.now() };
+    if (changed && ui.screen === 'ambient') scheduleRender();
+  },
   onPoll(local, peer) {
     if (local) return;
     state.lastPollTs = Date.now();
@@ -260,6 +267,7 @@ const handler = createHandler({
   status: () => ({
     ...agent.status(), kindleLinked: linked(), frame: frames.version,
     screen: ui.screen,
+    battery: state.battery,
     kindleAddress: state.lastPollAddress,
     kindleTransport: state.lastPollHost ? (state.lastPollHost === LAN_HOST ? 'wifi' : 'usb') : null,
   }),

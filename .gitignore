@@ -4,4 +4,5 @@ dashd/.config.json
 kindle/dash/network.local.sh
 kindle/dash/test.png
 kindle/dash/offline.png
+kindle/dash/offline/
 .state/

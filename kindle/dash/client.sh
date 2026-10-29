@@ -2,6 +2,7 @@
 # Long-poll with bounded requests, local offline display and daemon generations.
 # Only a successfully drawn frame enables keys; offline keys are never queued.
 . /mnt/us/dash/config.sh
+. "$DIR/battery.sh"
 mkdir -p "$RUN"
 cd "$RUN" || exit 1
 
@@ -9,21 +10,33 @@ V=0
 EPOCH=
 OFFLINE=0
 DELAY=2
+OFFLINE_BATTERY=
+OFFLINE_UPDATES=0
 
 lost_connection() {
   V=0
   EPOCH=
   rm -f "$RUN/shown" "$RUN/version"
-  if [ "$OFFLINE" = 0 ]; then
-    if [ -f "$DIR/offline.png" ]; then
-      eips -f -g "$DIR/offline.png" >/dev/null 2>&1
+  read_battery
+  BATTERY_KEY="$BATTERY_LEVEL $BATTERY_CHARGING"
+  if [ "$OFFLINE" = 0 ] || [ "$OFFLINE_BATTERY" != "$BATTERY_KEY" ]; then
+    OFFLINE_FRAME=$(offline_frame)
+    if [ -f "$OFFLINE_FRAME" ]; then
+      if [ "$OFFLINE" = 0 ] || [ "$OFFLINE_UPDATES" -ge 10 ]; then
+        eips -f -g "$OFFLINE_FRAME" >/dev/null 2>&1
+        OFFLINE_UPDATES=0
+      else
+        eips -g "$OFFLINE_FRAME" >/dev/null 2>&1
+        OFFLINE_UPDATES=$((OFFLINE_UPDATES + 1))
+      fi
     else
       eips -c >/dev/null 2>&1
       eips 2 12 'NO CONNECTION' >/dev/null 2>&1
       eips 2 14 'Reconnecting automatically' >/dev/null 2>&1
       eips 2 16 'Home: return to Kindle' >/dev/null 2>&1
     fi
-    echo 'offline; retrying automatically'
+    OFFLINE_BATTERY=$BATTERY_KEY
+    [ "$OFFLINE" = 1 ] || echo 'offline; retrying automatically'
     OFFLINE=1
   fi
   # wifid owns reconnection; restore its radio only if explicitly disabled.
@@ -37,7 +50,8 @@ lost_connection() {
 
 while :; do
   # Normal long-poll is 25s. A vanished/sleeping Mac cannot strand wget.
-  fetch 32 "$BASE/version?since=$V&epoch=$EPOCH" "$RUN/version.resp" || { lost_connection; continue; }
+  read_battery
+  fetch 32 "$BASE/version?since=$V&epoch=$EPOCH&battery=$BATTERY_LEVEL&charging=$BATTERY_CHARGING" "$RUN/version.resp" || { lost_connection; continue; }
   RESP=$(cat "$RUN/version.resp")
   set -- $RESP
   NEW=$1

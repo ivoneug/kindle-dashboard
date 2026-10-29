@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import { log } from './log.js';
 import { validateNetwork } from './network.js';
+import { parseBattery } from './battery.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PREVIEW_HTML = path.join(__dirname, 'preview.html');
@@ -99,6 +100,10 @@ export function createHandler(app) {
 
     switch (url.pathname) {
       case '/version': {
+        if (!local && app.onBattery && q.getAll('battery').length === 1 && q.getAll('charging').length === 1) {
+          const battery = parseBattery(q.get('battery'), q.get('charging'));
+          if (battery) app.onBattery(battery);
+        }
         if (app.onPoll) app.onPoll(local, { address: req.socket.remoteAddress, host: req.socket.localAddress });
         const newEpoch = q.has('epoch') && q.get('epoch') !== app.frames.epoch;
         const since = newEpoch ? 0 : intParam(q, 'since');

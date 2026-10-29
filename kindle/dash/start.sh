@@ -2,6 +2,7 @@
 # Takes the screen over: wakes the device and keeps the screensaver off,
 # parks the stock UI, starts the frame and key loops. Undo with stop.sh.
 . /mnt/us/dash/config.sh
+. "$DIR/battery.sh"
 mkdir -p "$RUN"
 
 if [ -f "$RUN/client.pid" ] && kill -0 "$(cat "$RUN/client.pid")" 2>/dev/null; then
@@ -43,7 +44,9 @@ case "$UI_MODE" in
 esac
 eips -c >/dev/null 2>&1
 rm -f "$RUN/version" "$RUN/shown"
-if [ -f "$DIR/offline.png" ]; then eips -f -g "$DIR/offline.png" >/dev/null 2>&1; fi
+read_battery
+OFFLINE_FRAME=$(offline_frame)
+if [ -f "$OFFLINE_FRAME" ]; then eips -f -g "$OFFLINE_FRAME" >/dev/null 2>&1; fi
 
 # Ignoring HUP keeps both loops alive after the ssh session that started them
 # closes; exec keeps the recorded pid the loop's own.
