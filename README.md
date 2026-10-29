@@ -1,25 +1,27 @@
 # Kindle Dashboard
 
-HUD для Codex и Claude Code на Kindle Keyboard (K3). Спецификация и ресерч: [kindle-dashboard.md](kindle-dashboard.md).
+**English** | [Русский](README.ru.md)
 
-Kindle работает как тонкий клиент: забирает готовый PNG с Mac, выводит его через `eips` и отправляет сырые нажатия клавиш. Вся логика, вёрстка и раскладка клавиш живут на Mac в `dashd`. В том же процессе работает выбранный backend: Codex по умолчанию или Claude Code. Общий store, мост разрешений и оформление основаны на [claude-thing](https://github.com/rithkott/claude-thing).
+An e-ink dashboard for Codex and Claude Code on the Kindle Keyboard (K3). See the [design specification and research (Russian)](kindle-dashboard.md).
 
-```
-dashd/                Mac: рендер (headless Chrome → 16 оттенков серого) + HTTP API для Kindle
-  src/claude/         ядро демона claude-thing (сессии, разрешения, usage); см. его README
-  src/codex/          Codex: app-server, история чатов, лимиты и command hooks
-  src/screens/        Sessions, детальный экран, Queue, Usage
-  src/theme/          e-ink тема; fonts.css извлекается из claude-thing (npm run fonts)
-  src/keys.js         сырой код клавиши → действие
-  scripts/            установка хуков Claude Code, служебные генераторы
-kindle/dash/          Kindle: копируется в /mnt/us/dash
-  config.sh           адрес dashd, флаги eips, клавиша выхода
+The Kindle runs as a thin client: it fetches a ready-to-display PNG from the Mac, draws it with `eips`, and sends raw key presses back. All application logic, rendering, and key mappings live in `dashd` on the Mac. The selected backend runs in the same process: Codex by default, or Claude Code. The shared store, approval bridge, and visual design are based on [claude-thing](https://github.com/rithkott/claude-thing).
+
+```text
+dashd/                Mac: rendering (headless Chrome → 16 shades of gray) + Kindle HTTP API
+  src/claude/         claude-thing daemon core (sessions, approvals, usage); see its README
+  src/codex/          Codex: app-server, chat history, limits, and command hooks
+  src/screens/        Sessions, session details, Queue, Usage
+  src/theme/          e-ink theme; fonts.css is extracted from claude-thing (npm run fonts)
+  src/keys.js         raw key code → action
+  scripts/            Claude Code hook installation and asset generators
+kindle/dash/          Kindle: copied to /mnt/us/dash
+  config.sh           dashd address, eips flags, exit key
   client.sh           long-poll /version → /frame.png → eips
   keys.sh             waitforkey → /key
-  start.sh / stop.sh  захватить экран / вернуть штатный UI
-  discovery.sh        M0: сбор фактов об устройстве и кодов клавиш
-scripts/kindle-deploy.sh   копирует kindle/dash на Kindle (через USB-диск или ssh)
-scripts/kindle-wifi-setup.mjs   готовит парные настройки Mac/Kindle для Wi-Fi
+  start.sh / stop.sh  take over the screen / restore the stock UI
+  discovery.sh        M0: collect device information and key codes
+scripts/kindle-deploy.sh       copy kindle/dash to the Kindle (USB storage or SSH)
+scripts/kindle-wifi-setup.mjs  generate paired Mac/Kindle settings for Wi-Fi
 ```
 
 ## dashd
@@ -29,232 +31,240 @@ cd dashd && npm install
 npm start
 ```
 
-Нужен установленный Google Chrome: `playwright-core` использует его как headless-рендерер, отдельный браузер не скачивается. По умолчанию слушает `127.0.0.1:8765` и адрес Mac на USB-линке (`192.168.2.1`). Для Wi-Fi добавляется конкретный адрес Mac в домашней сети с обязательным ключом устройства (см. ниже). Отсутствующие адреса повторяются каждые 5 с; на `0.0.0.0` демон не слушает.
+Google Chrome must be installed: `playwright-core` uses it for headless rendering without downloading a separate browser. By default, the daemon listens on `127.0.0.1:8765` and the Mac's USB network address (`192.168.2.1`). Wi-Fi adds a specific address on the home network and requires a device key (see below). Binding to unavailable addresses is retried every 5 seconds; the daemon does not listen on `0.0.0.0`.
 
-Предпросмотр: http://127.0.0.1:8765/. Там текущий кадр в том виде, в каком его получает Kindle, переключатель ориентации и симуляция нажатий. Доступен только с loopback.
+The [local preview](http://127.0.0.1:8765/) shows the current frame exactly as the Kindle receives it, with an orientation switch and simulated key presses. It is available only over loopback.
 
-Настройки берутся из `dashd/.config.json` (переменные окружения `DASHD_*` имеют приоритет), см. [config.js](dashd/src/config.js):
+Settings are read from `dashd/.config.json`, with `DASHD_*` environment variables taking precedence. See [config.js](dashd/src/config.js):
 
 ```json
 { "agent": "codex", "usbHost": "192.168.2.1", "orientation": "portrait", "landscapeRotate": 90 }
 ```
 
-Тесты: `npm test`. В том числе проверяется, что кадры имеют PNG `color_type 0`, иначе `eips` их не покажет. Тесты перенесённого ядра лежат в `test/claude/`.
+Run tests with `npm test`. They include checks that frames use PNG `color_type 0`, which `eips` requires. Tests for the imported core are in `test/claude/`.
 
-### Codex (по умолчанию)
+### Codex (default)
 
-Нужен установленный и авторизованный Codex CLI. `dashd` находит его в PATH или
-внутри Codex.app на macOS; явный путь можно задать в `DASHD_CODEX_BIN`.
-`npm start` читает существующие чаты и лимиты через локальный
-app-server. Новые модельные запросы для мониторинга не создаются.
+An installed, authenticated Codex CLI is required. `dashd` finds it in PATH or
+inside Codex.app on macOS. Set `DASHD_CODEX_BIN` to provide an explicit path.
+`npm start` reads existing chats and usage limits through a local app-server.
+Monitoring does not create new model requests.
 
 ```bash
 npm run install-hooks:codex
-# затем в Codex: /hooks — просмотреть и доверить новые хуки
+# Then, in Codex: /hooks — review and trust the new hooks.
 ```
 
-Если терминал пишет `command not found: codex`, CLI из приложения запускается так:
+If your terminal reports `command not found: codex`, run the CLI bundled with the app:
 
 ```bash
 "/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
 ```
 
-После доверия разрешения отвечаются с Kindle: `Y` / `N` / `Back`. Без Kindle
-или запущенного `dashd` используется обычный интерфейс разрешений Codex.
-`/status` показывает `hooks: true` после первого дошедшего события.
+Once the hooks are trusted, you can answer approval requests from the Kindle with
+`Y` / `N` / `Back`. Without a connected Kindle or a running `dashd`, Codex uses
+its normal approval interface. `/status` reports `hooks: true` after the first
+event reaches the daemon.
 
-Список показывает до 20 корневых чатов за последние сутки, включая завершённые
-(IDLE). Импортированные истории появляются после первого запуска в Codex;
-Guardian и внутренние подагенты скрыты. Контекст и лимиты берутся из данных Codex.
-Подробности и ограничения: [docs/codex-integration.md](docs/codex-integration.md).
+The list shows up to 20 root chats from the past 24 hours, including completed
+(IDLE) chats. Imported histories appear after their first run in Codex;
+Guardian and internal subagents are hidden. Context and usage limits come from
+Codex data. See [integration details and limitations (Russian)](docs/codex-integration.md).
 
-### Claude Code (совместимость)
+### Claude Code (compatibility)
 
-Запуск: `npm run start:claude`, либо `agent: "claude"` в `.config.json`.
+Run `npm run start:claude`, or set `agent: "claude"` in `.config.json`.
 
-
-Сессии `dashd` находит и без хуков: опрашивает `claude agents --json` и читает транскрипты. Лимиты берёт из `claude -p "/usage"` раз в минуту. Хуки нужны для точных состояний и для разрешений:
+`dashd` discovers sessions without hooks by polling `claude agents --json` and reading transcripts. It retrieves limits from `claude -p "/usage"` once a minute. Hooks provide accurate session states and approval handling:
 
 ```bash
-npm run install-hooks:claude     # в ~/.claude/settings.json, с резервной копией
+npm run install-hooks:claude     # Updates ~/.claude/settings.json, keeping a backup.
 npm run uninstall-hooks:claude
 ```
 
-Команды `install-hooks` / `uninstall-hooks` выбирают backend как `npm start`.
-Хуки Claude шлют события на `127.0.0.1:8765/hook` и принимаются только с loopback. Если рядом стоят хуки claude-thing (`:8790`), установщик откажется: два моста разрешений не должны спорить за один ответ.
+The `install-hooks` / `uninstall-hooks` commands select the backend in the same way as `npm start`.
+Claude hooks send events to `127.0.0.1:8765/hook` and are accepted only over loopback. If claude-thing hooks (`:8790`) are already installed, the installer refuses to continue: two approval bridges must not compete for the same response.
 
-Как ведёт себя запрос разрешения:
-- **Kindle подключён** (опрашивал `dashd` за последние ~35 с): запрос появляется на экране Queue и ждёт ответа с Kindle до ~10 минут. Потом он уходит на Mac, в терминал или в приложение Claude: туда, где открыта сессия.
-- **Kindle не подключён**: запрос сразу уходит в терминал.
-- **Kindle отключился, пока запрос ждал**: запрос уходит в терминал в течение пары секунд.
-- **`dashd` не запущен**: хук падает, и Claude Code показывает обычный диалог.
+Approval request behavior:
 
-Автоматического отказа нет ни в одном из этих случаев.
+- **Kindle connected** (polled `dashd` within the last ~35 seconds): the request appears on Queue and waits for a Kindle response for up to ~10 minutes. It then returns to the Mac, in the terminal or Claude app where the session is open.
+- **Kindle disconnected**: the request goes straight to the terminal.
+- **Kindle disconnects while a request is waiting**: the request returns to the terminal within a couple of seconds.
+- **`dashd` is not running**: the hook fails, and Claude Code shows its normal prompt.
 
-`npm run mock` запускает `dashd` с фейковыми сессиями, запросом разрешения раз в минуту и вопросом раз в 90 с. Режим нужен для работы над экранами без настоящего Claude.
+None of these cases automatically denies the request.
 
-## M0: связь с Kindle
+`npm run mock` starts `dashd` with fake sessions, an approval request every minute, and a question every 90 seconds. Use it to work on screens without a real Claude session.
 
-**Адреса USB-сети: Kindle `192.168.2.2`, Mac `192.168.2.1`.** Это заводские значения USBNetwork для K3, на устройстве их менять не нужно. Адреса `192.168.1.1/.2` из старых гайдов не подходят: домашняя сеть Mac находится в `192.168.1.0/24`. Если меняешь USB-адреса, поправь `/mnt/us/usbnet/etc/config`, `usbHost` у dashd и `DASH_HOST` в локальных настройках Kindle. В режиме Wi-Fi адрес `DASH_HOST` относится к домашней сети, независимо от USBNetwork.
+## M0: connecting to the Kindle
 
-1. Подключи Kindle по USB как диск. Если USBNetwork не установлен (нет `/Volumes/Kindle/usbnet/`), возьми `kindle-usbnetwork-0.57.N-k3.zip` из темы https://www.mobileread.com/forums/showthread.php?t=88004. Положи в корень Kindle `.bin` для своей модели **с именем в нижнем регистре** (`update_usbnetwork_0.57.N_k3w_install.bin`): старый джейлбрейк 0.7.N сверяет имя со своим белым списком с учётом регистра. Затем Menu → Settings → Menu → Update Your Kindle. В `usbnet/etc/config` по умолчанию `KINDLE_IP=192.168.2.2` и `HOST_IP=192.168.2.1`.
-2. Скопируй скрипты, пока Kindle смонтирован как диск:
+**USB network addresses: Kindle `192.168.2.2`, Mac `192.168.2.1`.** These are the K3 USBNetwork defaults; no device-side address changes are needed. The `192.168.1.1/.2` addresses in older guides conflict with this setup's home network, `192.168.1.0/24`. If you change the USB addresses, update `/mnt/us/usbnet/etc/config`, dashd's `usbHost`, and `DASH_HOST` in the Kindle's local settings. In Wi-Fi mode, `DASH_HOST` uses the home network address independently of USBNetwork.
+
+1. Connect the Kindle over USB as a storage device. If USBNetwork is not installed (no `/Volumes/Kindle/usbnet/`), download `kindle-usbnetwork-0.57.N-k3.zip` from the [MobileRead thread](https://www.mobileread.com/forums/showthread.php?t=88004). Copy the `.bin` for your model to the Kindle's root directory **with a lowercase filename** (`update_usbnetwork_0.57.N_k3w_install.bin`): the old 0.7.N jailbreak checks filenames against a case-sensitive allowlist. Then select Menu → Settings → Menu → Update Your Kindle. The defaults in `usbnet/etc/config` are `KINDLE_IP=192.168.2.2` and `HOST_IP=192.168.2.1`.
+2. Copy the scripts while the Kindle is mounted as storage:
    ```bash
    ./scripts/kindle-deploy.sh
    ```
-3. Извлеки диск и отключи кабель. На Kindle нажми `Del` (откроется строка поиска) и введи `;debugOn`, затем `~usbNetwork`, затем `;debugOff`. Подключи кабель.
-4. На Mac появится интерфейс «RNDIS/Ethernet Gadget» (`en10`). Назначь ему адрес вручную: System Settings → Network → RNDIS/Ethernet Gadget → Details → TCP/IP → Manually, `192.168.2.1` / `255.255.255.0`, поле Router пустое.
-5. Один раз поставь SSH-ключ. На запрос пароля нажми Enter: по USB dropbear пускает root с любым паролем.
+3. Eject the drive and unplug the cable. On the Kindle, press `Del` to open search, then enter `;debugOn`, `~usbNetwork`, and `;debugOff`, pressing Enter after each command. Reconnect the cable.
+4. A “RNDIS/Ethernet Gadget” interface (`en10`) appears on the Mac. Configure it manually: System Settings → Network → RNDIS/Ethernet Gadget → Details → TCP/IP → Manually, `192.168.2.1` / `255.255.255.0`, leaving Router blank.
+5. Install an SSH key once. Press Enter at the password prompt: over USB, dropbear accepts any password for root.
    ```bash
    ./scripts/kindle-ssh-setup.sh
    ```
-   Дальше вход без пароля: `./scripts/kindle-ssh.sh` (оболочка) или `./scripts/kindle-ssh.sh '<команда>'`. Ключ лежит в `~/.ssh/kindle_k3`.
-6. На Kindle запусти discovery (через `./scripts/kindle-ssh.sh`). Скрипт интерактивный: он выводит тестовый PNG и по очереди просит нажать каждую клавишу.
+   Subsequent connections are passwordless: `./scripts/kindle-ssh.sh` for a shell, or `./scripts/kindle-ssh.sh '<command>'`. The key is stored at `~/.ssh/kindle_k3`.
+6. Run discovery on the Kindle through `./scripts/kindle-ssh.sh`. The script is interactive: it displays a test PNG and asks you to press each key in turn.
    ```sh
    sh /mnt/us/dash/discovery.sh
    ```
-   Результат сохраняется в `/mnt/us/dash/discovery.txt`. Его нужно перенести в §10 спецификации, а коды клавиш — в `dashd/src/keys.js` и `KEY_EXIT` в `kindle/dash/config.sh`.
-7. Обратно в режим диска: на Kindle снова `;debugOn`, `~usbNetwork`, `;debugOff` (команда работает как переключатель).
+   Results are saved to `/mnt/us/dash/discovery.txt`. Transfer them to §10 of the specification, and update the key codes in `dashd/src/keys.js` and `KEY_EXIT` in `kindle/dash/config.sh`.
+7. To return to storage mode, enter `;debugOn`, `~usbNetwork`, and `;debugOff` again on the Kindle. The USBNetwork command acts as a toggle.
 
-## Работа по Wi-Fi
+## Wi-Fi operation
 
-Kindle забирает кадры через домашний роутер; кабель можно отключить или использовать
-для зарядки от адаптера/пауэрбанка. Mac с запущенным `dashd` должен оставаться
-включённым и доступным в той же локальной сети.
+The Kindle fetches frames through your home router. You can unplug the cable or
+use it to charge from a wall adapter or power bank. The Mac running `dashd` must
+stay powered on and reachable on the same local network.
 
-1. На Kindle выйди из dashboard клавишей `Home`, затем в Menu → Settings → Wi-Fi
-   Networks подключись к домашней сети 2,4 ГГц. Это сохраняет профиль в штатном wifid.
-2. На Mac, из корня репозитория:
+1. Press `Home` on the Kindle to exit the dashboard, then connect to your home
+   2.4 GHz network under Menu → Settings → Wi-Fi Networks. This saves the
+   profile in the stock wifid service.
+2. On the Mac, from the repository root:
    ```bash
    node scripts/kindle-wifi-setup.mjs
-   # По умолчанию адрес берётся с en0; можно указать --host 192.168.1.247
-   # или --interface en7, если Mac подключён к роутеру через другой интерфейс.
+   # Uses the en0 address by default; override with --host 192.168.1.247
+   # or --interface en7 if the Mac connects to the router through another interface.
    ```
-   Создаются согласованные `dashd/.config.json` и `kindle/dash/network.local.sh`
-   с адресом Mac и случайным ключом на 256 бит. Оба файла исключены из Git;
-   повторный запуск сохраняет ключ и остальные настройки демона.
-3. Перезапусти `dashd`. Затем через пока подключённый USB:
+   This creates matching `dashd/.config.json` and `kindle/dash/network.local.sh`
+   files with the Mac's address and a random 256-bit key. Both files are excluded
+   from Git. Running setup again preserves the key and other daemon settings.
+3. Restart `dashd`, then use the still-connected USB link:
    ```bash
    ./scripts/kindle-deploy.sh
    ./scripts/kindle-ssh.sh 'sh /mnt/us/dash/stop.sh; sh /mnt/us/dash/start.sh'
    ```
-   При старте dashboard включает Wi-Fi и использует сохранённую сеть. Настройки
-   USBNetwork и доступ SSH по USB не меняются; SSH по Wi-Fi для dashboard не нужен.
-4. В `http://127.0.0.1:8765/status` проверь `kindleLinked: true`,
-   `kindleTransport: "wifi"` и домашний IP Kindle в `kindleAddress`. Кабель теперь
-   можно отключить: запросы кадров и клавиши идут по Wi-Fi.
+   At startup, the dashboard enables Wi-Fi and uses the saved network. USBNetwork
+   settings and SSH access over USB stay unchanged; the dashboard does not need
+   SSH over Wi-Fi.
+4. Check the [local status endpoint](http://127.0.0.1:8765/status) for
+   `kindleLinked: true`, `kindleTransport: "wifi"`, and the Kindle's home network
+   IP in `kindleAddress`. You can now unplug the cable: frame requests and key
+   presses travel over Wi-Fi.
 
-Демон добавляет только конкретный приватный `lanHost`; без `deviceToken` Wi-Fi
-не запускается. Ключ проверяется для `/version`, `/frame.png` и `/key` на всех
-сетевых соединениях, включая USB после настройки Wi-Fi. Старый `wget` Kindle
-передаёт ключ в query-параметре по HTTP внутри домашней сети. Хуки, `/status`,
-предпросмотр и `/dev/*` доступны только с loopback даже при правильном ключе.
-Токен не печатается в логах. Для ручной конфигурации предусмотрены
-`DASHD_LAN_HOST` и `DASHD_DEVICE_TOKEN`, либо `lanHost` / `deviceToken` в `.config.json`.
+The daemon binds only to the specific private `lanHost`; Wi-Fi requires a
+`deviceToken`. The key is checked for `/version`, `/frame.png`, and `/key` on
+all network connections, including USB after Wi-Fi setup. The Kindle's old
+`wget` sends the key as an HTTP query parameter within the home network.
+Hooks, `/status`, the preview, and `/dev/*` are available only over loopback,
+even with a valid key. The token is not printed in logs. For manual configuration,
+use `DASHD_LAN_HOST` and `DASHD_DEVICE_TOKEN`, or `lanHost` / `deviceToken` in `.config.json`.
 
-Закрепи адрес Mac в DHCP роутера. Если адрес изменился, снова запусти setup,
-перезапусти демон и скопируй настройки на Kindle по USB. Для возврата к передаче
-кадров по кабелю: `node scripts/kindle-wifi-setup.mjs --usb`, затем deploy и
-перезапуск клиента. Удалять Wi-Fi-профиль Kindle для этого не нужно.
+Reserve the Mac's address in your router's DHCP settings. If the address changes,
+run setup again, restart the daemon, and copy the settings to the Kindle over USB.
+To return to sending frames over the cable, run
+`node scripts/kindle-wifi-setup.mjs --usb`, then deploy and restart the client.
+You do not need to remove the Kindle's Wi-Fi profile.
 
-## Автозапуск и восстановление связи (M4)
+## Autostart and reconnection (M4)
 
-На Mac установи пользовательский LaunchAgent один раз (обычный запуск `npm start`
-перед этим нужно остановить):
+Install the per-user LaunchAgent on the Mac once. Stop any manually started
+`npm start` process first:
 
 ```bash
 node scripts/dashd-service.mjs install
 node scripts/dashd-service.mjs status
 node scripts/dashd-service.mjs restart
-# Отключить автозапуск и остановить службу:
+# Disable autostart and stop the service:
 node scripts/dashd-service.mjs uninstall
 ```
 
-Демон запускается при входе пользователя в macOS и возвращается после завершения
-процесса. Служба использует абсолютные пути к Node и репозиторию, поэтому nvm и
-интерактивная оболочка ей не нужны. После переноса репозитория или удаления текущей
-версии Node повтори `install`. Настройки читаются из `dashd/.config.json`; токен
-не копируется в plist. Лог: `~/Library/Logs/kindle-dashboard/dashd.log`.
-Служба не удерживает Mac от сна: когда он спит, Kindle показывает отсутствие связи.
+The daemon starts when you log in to macOS and restarts after its process exits.
+The service uses absolute paths to Node and the repository, so it does not need
+nvm or an interactive shell. Run `install` again after moving the repository or
+removing the current Node version. Settings are read from `dashd/.config.json`;
+the token is not copied into the plist. Log: `~/Library/Logs/kindle-dashboard/dashd.log`.
+The service does not prevent Mac sleep; while the Mac sleeps, the Kindle shows
+the offline screen.
 
-На Kindle после `./scripts/kindle-deploy.sh`, через USB SSH:
+After running `./scripts/kindle-deploy.sh`, configure Kindle autostart over USB SSH:
 
 ```bash
 ./scripts/kindle-ssh.sh 'sh /mnt/us/dash/autostart.sh enable'
-# Отключить только будущие автозапуски:
+# Disable future automatic starts only:
 ./scripts/kindle-ssh.sh 'sh /mnt/us/dash/autostart.sh disable'
-# Удалить init-скрипт и его ссылки:
+# Remove the init script and its links:
 ./scripts/kindle-ssh.sh 'sh /mnt/us/dash/autostart.sh remove'
 ```
 
-Устанавливается отдельный `/etc/init.d/kindle-dashboard` с запуском в обычном
-runlevel 5, после готовности framework. Amazon-скрипты и USBNetwork не меняются.
-При необходимости rootfs временно перемонтируется для установки, исходный режим
-монтирования восстанавливается. `Home` останавливает dashboard до следующего
-перезапуска Kindle. Для обхода автозапуска создай пустой файл
-`/mnt/us/dash/DISABLED` (на USB-диске: `Kindle/dash/DISABLED`); удали его для возврата.
-Во время загрузки с подключённым USB-диском запуск до четырёх минут ждёт возврата
-userstore устройству. Ручной запуск по-прежнему: `sh /mnt/us/dash/start.sh`.
-Загрузочный лог: `/var/tmp/dash/boot.log`.
+This installs a separate `/etc/init.d/kindle-dashboard` script that starts in
+normal runlevel 5 once the framework is ready. Amazon scripts and USBNetwork
+are not modified. If needed, the root filesystem is temporarily remounted for
+installation, then restored to its original mount mode. `Home` stops the
+dashboard until the next Kindle restart. To bypass autostart, create an empty
+`/mnt/us/dash/DISABLED` file (`Kindle/dash/DISABLED` over USB storage); remove it
+to enable autostart again. If USB storage is connected during boot, startup
+waits up to four minutes for userstore to return to the device. You can still
+start it manually with `sh /mnt/us/dash/start.sh`. Boot log: `/var/tmp/dash/boot.log`.
 
-Клиент ограничивает время каждого сетевого запроса. При потере Wi-Fi, сне Mac или
-отсутствии демона он показывает локальный **NO CONNECTION**, отключает отправку
-клавиш и повторяет соединение с паузами 2, 4, 8, затем 15 секунд. Wi-Fi использует
-сохранённый штатный профиль. После возвращения Mac или сети dashboard восстанавливается
-сам с полным обновлением экрана. `Home` работает и без связи.
+The client limits the duration of every network request. If Wi-Fi drops, the Mac
+sleeps, or the daemon is unavailable, it shows a local **NO CONNECTION** screen,
+stops sending key presses, and retries after 2, 4, 8, then 15 seconds. Wi-Fi uses
+the saved stock profile. When the Mac or network returns, the dashboard resumes
+automatically with a full screen refresh. `Home` works while offline too.
 
-Каждый запуск демона получает новый `epoch`: одинаковый номер кадра после рестарта
-не мешает восстановлению, а клавиша со старого запуска не может ответить на новый
-запрос разрешения. В протоколе M4 клиент передаёт `epoch` в `/version`, `/frame.png`
-и `/key`; старый формат `/version` без этого параметра остаётся доступным.
+Each daemon start gets a new `epoch`: a reused frame number after a restart does
+not block recovery, and a key press from an earlier run cannot answer a new
+approval request. In the M4 protocol, the client sends `epoch` to `/version`,
+`/frame.png`, and `/key`. The older `/version` format without this parameter
+remains available.
 
-## Ambient с часами (M4)
+## Ambient clock (M4)
 
-Когда две минуты нет нажатий, работающих сессий или запросов к пользователю,
-dashboard показывает крупные часы, дату и маскота текущего агента. Часы используют
-локальное время Mac и обновляются раз в минуту. Ошибка backend не считается
-спокойным состоянием; диагностический экран автоматически не скрывается.
+After two minutes with no key presses, working sessions, or user requests, the
+dashboard shows a large clock, the date, and the current agent's mascot. The
+clock uses the Mac's local time and updates once a minute. Backend errors do
+not count as a quiet state; the diagnostic screen is not hidden automatically.
 
-Начало работы сессии возвращает предыдущий экран; новый запрос открывает Queue.
-Любая клавиша будит dashboard, `S` / `Q` / `U` сразу открывают выбранный экран.
-Первое `Y` / `N` после часов только будит экран. `Home` выходит в штатный Kindle.
-Порог настраивается через `ambientAfterMs` в `dashd/.config.json` или
-`DASHD_AMBIENT_AFTER_MS`; `0` отключает автоматический Ambient.
+Session activity restores the previous screen; a new request opens Queue.
+Any key wakes the dashboard, while `S` / `Q` / `U` open the selected screen
+directly. The first `Y` / `N` after the clock only wakes the screen. `Home`
+returns to the stock Kindle UI. Set the threshold with `ambientAfterMs` in
+`dashd/.config.json` or `DASHD_AMBIENT_AFTER_MS`; `0` disables automatic Ambient mode.
 
-В правом верхнем углу Ambient и экрана **NO CONNECTION** показан заряд самого
-Kindle: значок батареи и проценты, а при зарядке — молния и проценты. Показания
-берутся из `powerd` (`battLevel`, `isCharging`). Неизвестный уровень обозначается
-`--%`. Обновление происходит при изменении показаний, обычно в пределах минуты.
-На экране реконнекта индикатор продолжает работать без Mac: клиент выбирает
-локальный PNG с актуальным зарядом. Эти варианты собирает `device-assets.js`
-во время deploy; сгенерированная папка `kindle/dash/offline/` не входит в Git.
+The top-right corner of Ambient and **NO CONNECTION** shows the Kindle's own
+battery level: a battery icon and percentage, or a lightning bolt and percentage
+while charging. Readings come from `powerd` (`battLevel`, `isCharging`). An
+unknown level is shown as `--%`. The display updates when readings change,
+usually within a minute. The indicator keeps working without the Mac on the
+reconnection screen: the client selects a local PNG with the current charge.
+`device-assets.js` generates these variants during deployment; the generated
+`kindle/dash/offline/` directory is excluded from Git.
 
-## M1: труба
+## M1: the rendering pipeline
 
-На Mac запусти `cd dashd && npm start`, на Kindle — `sh /mnt/us/dash/start.sh`. На экране должен появиться тестовый экран. Нажатие любой клавиши показывает её сырой код в блоке LAST KEY на следующем кадре. Выход: `sh /mnt/us/dash/stop.sh` по ssh, после discovery также клавиша `Home`.
+Start `cd dashd && npm start` on the Mac and `sh /mnt/us/dash/start.sh` on the Kindle. The test screen should appear. Pressing any key displays its raw code in the LAST KEY block on the next frame. Exit with `sh /mnt/us/dash/stop.sh` over SSH, or with `Home` after discovery.
 
-Сравнить ориентации можно кнопками portrait/landscape на странице предпросмотра: кадр сразу уходит на Kindle.
+Use the portrait/landscape buttons in the preview to compare orientations; each frame is sent to the Kindle immediately.
 
-## Экраны и клавиши (M2)
+## Screens and keys (M2)
 
-- **Sessions.** Тайлы сессий: 4 в столбец в портретной ориентации, 2×2 в альбомной. Если сессий больше, они листаются страницами. Верхняя панель: `SESS` и число сессий слева, расход недельного лимита `7D …%` по центру, часы и батарея Kindle справа; если лимит неизвестен, показано `7D --%`. Инвертированный тайл означает ATTENTION, то есть сессия ждёт человека. Лампа показывает состояние: залитая — работает, с галочкой — закончила, пустая — простаивает, пунктирная — сессия завершена. Выбранный тайл обведён толстой рамкой.
-- **Детальный экран сессии.** Папка, модель, время работы, текущий инструмент, контекст, токены. Последнее сообщение показывается целиком и листается страницами.
-- **Usage.** Полосы лимитов из `claude /usage` с порогами ALL CLEAR / RUNNING OUT / OUT OF USAGE и разбивка за 24 часа.
+- **Sessions.** Four session tiles stacked in portrait, or a 2×2 grid in landscape. Additional sessions are split into pages. The top bar shows `SESS` and the session count on the left, weekly limit consumption as `7D …%` in the center, and the clock and Kindle battery on the right. Unknown usage is shown as `7D --%`. An inverted tile means ATTENTION: the session is waiting for a person. The state indicator is filled while working, checked when finished, hollow when idle, and dashed when the session has ended. A thick border marks the selected tile.
+- **Session details.** Folder, model, elapsed time, current tool, context, and tokens. The latest message is shown in full across navigable pages.
+- **Usage.** Limit bars from `claude /usage`, with ALL CLEAR / RUNNING OUT / OUT OF USAGE thresholds and a 24-hour breakdown.
 
-| Клавиша | Действие |
+| Key | Action |
 |---|---|
 | `S` / `Q` / `U` | Sessions / Queue / Usage |
-| Кнопки перелистывания (обе стороны) | следующий / предыдущий экран |
-| Джойстик | выбор тайла: в портретной ↑↓ по одному, ←→ по страницам; в альбомной по сетке |
-| Центр джойстика | открыть детальный экран выбранной сессии |
-| На детальном экране | центр — поднять окно сессии (вкладку Terminal или приложение Claude), ←→ — соседняя сессия, ↑↓ — страницы сообщения, `Back` — к списку |
-| На Queue | `Y` — разрешить (деструктивную команду — вторым нажатием), `N` — запретить, `Back` — ответить на Mac, ↑↓ — выбрать запрос, центр — поднять окно сессии |
-| `R` | полное обновление экрана |
-| `Menu` | тестовый экран M1 (диагностика) |
-| `Home` | выход из дашборда (обрабатывается на самом Kindle) |
+| Page-turn buttons (both sides) | Next / previous screen |
+| Five-way controller | Select a tile: ↑↓ moves one tile and ←→ changes pages in portrait; moves through the grid in landscape |
+| Controller center | Open details for the selected session |
+| In session details | Center raises the session window (Terminal tab or Claude app); ←→ selects a neighboring session; ↑↓ pages through the message; `Back` returns to the list |
+| In Queue | `Y` allows (a destructive command requires a second press); `N` denies; `Back` sends the request to the Mac; ↑↓ selects a request; center raises the session window |
+| `R` | Full screen refresh |
+| `Menu` | M1 test screen (diagnostics) |
+| `Home` | Exit the dashboard (handled on the Kindle itself) |
 
-**Queue (M3).** Запрос разрешения сам открывает этот экран, а когда отвечены все, возвращает прежний. Нажатие засчитывается, только если запрос был на экране именно в тот момент: Kindle присылает версию кадра, на котором нажали клавишу. Вопросы с вариантами ответа и подтверждение плана никакой хук ответить не может, поэтому Kindle их только показывает. Центр джойстика поднимает окно сессии, а ответить нужно там.
+**Queue (M3).** An approval request opens this screen automatically. Once all requests are answered, the previous screen returns. A key press is accepted only if the request was actually on screen at that moment: the Kindle sends the version of the frame on which the key was pressed. Hooks cannot answer multiple-choice questions or plan confirmations, so the Kindle only displays them. Press the controller center to raise the session window and answer there.
 
-## Лицензия
+## License
 
-GPL-3.0 ([LICENSE](LICENSE)): `dashd/src/claude` перенесён из claude-thing, который распространяется под GPL-3.0.
+GPL-3.0 ([LICENSE](LICENSE)): `dashd/src/claude` was imported from claude-thing, which is distributed under GPL-3.0.
