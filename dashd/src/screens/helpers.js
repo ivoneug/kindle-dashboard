@@ -42,3 +42,10 @@ const EFFORT_LABELS = {
 export function effortLabel(effort) {
   return EFFORT_LABELS[effort] || null;
 }
+
+export function compactLabel(job, now = Date.now()) {
+  if (!job || (job.finishedTs && now - job.finishedTs > 60_000)) return '';
+  return { queued: 'COMPACT QUEUED',
+    running: 'COMPACTING', unknown: 'COMPACT STATUS UNKNOWN · CHECK CODEX',
+    done: 'COMPACT DONE', failed: 'COMPACT FAILED' }[job.status] || '';
+}

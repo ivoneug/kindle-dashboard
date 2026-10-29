@@ -9,7 +9,7 @@
 // the page keys know where the end is.
 
 import { esc, topbar, legend, contextMeter, page } from './page.js';
-import { stateLabel, modeLabel, effortLabel, fmtDuration } from './helpers.js';
+import { stateLabel, modeLabel, effortLabel, fmtDuration, compactLabel } from './helpers.js';
 import { renderMarkdown } from './markdown.js';
 
 const GAP = 40;
@@ -22,9 +22,15 @@ const CSS = `
 
 .dhead { display: flex; align-items: center; gap: 10px; }
 .slabel { font-weight: 700; font-size: 17px; letter-spacing: 0.16em; }
-.mode { margin-left: auto; padding: 0 7px; border: 2px solid var(--ink); border-radius: 5px;
+.head-actions { margin-left: auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.mode { flex: none; padding: 0 7px; border: 2px solid var(--ink); border-radius: 5px;
   font-weight: 700; font-size: 14px; letter-spacing: 0.14em; line-height: 22px; }
 .mode.m-bypass { background: var(--ink); color: var(--paper); }
+.dhead .slabel { flex: none; }
+.landscape .dhead.has-compact-status { gap: 4px; }
+.landscape .dhead.has-compact-status .slabel { font-size: 14px; letter-spacing: 0; }
+.landscape .dhead.has-compact-status .head-actions { gap: 6px; }
+.landscape .dhead.has-compact-status .mode { padding: 0 4px; letter-spacing: .03em; }
 
 .dname { font-weight: 700; font-size: 32px; line-height: 1.15; overflow: hidden;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -35,6 +41,7 @@ const CSS = `
 .activity .e { flex-shrink: 0; }
 .activity.ask { display: inline-block; align-self: flex-start; padding: 0 8px; background: var(--ink); color: var(--paper);
   font-family: var(--sans); font-weight: 700; letter-spacing: 0.12em; line-height: 28px; }
+.compact-status { min-width: 0; font: 700 14px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .info .ctxtrack { height: 28px; }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); border: var(--rule); }
@@ -152,10 +159,13 @@ export function renderDetail(view, { width, height }) {
   const lamp = d.state === 'idle' && d.ended ? 'ended' : d.state;
   const message = d.lastMessage || '';
 
+  const compact = compactLabel(view.compactions?.[d.id], now);
   const info = '<div class="info">' +
-    '<div class="dhead"><span class="lamp ' + lamp + '"></span>' +
+    '<div class="dhead' + (compact ? ' has-compact-status' : '') + '"><span class="lamp ' + lamp + '"></span>' +
     '<span class="slabel">' + stateLabel(d.state, d.ended) + '</span>' +
-    (mode ? '<span class="mode m-' + mode.toLowerCase() + '">' + mode + '</span>' : '') + '</div>' +
+    (compact || mode ? '<span class="head-actions">' +
+      (compact ? '<span class="compact-status">' + esc(compact) + '</span>' : '') +
+      (mode ? '<span class="mode m-' + mode.toLowerCase() + '">' + mode + '</span>' : '') + '</span>' : '') + '</div>' +
     '<div class="dname">' + esc(d.name) + '</div>' +
     (meta ? '<div class="dmeta">' + esc(meta) + '</div>' : '') +
     activity(d, now) +
@@ -186,7 +196,7 @@ export function renderDetail(view, { width, height }) {
   const html = '<div class="screen">' +
     topbar('SESSION', { count: (view.index + 1) + '/' + view.total, linked: view.linked, waiting: view.waiting }) +
     '<div class="detail">' + info + msg + '</div>' +
-    legend([['●', 'raise'], ['←→', 'session'], ['↑↓', 'page'], ['BACK', 'list']], view.note || '') +
+    legend([['●', 'raise'], ['←→', 'session'], ['↑↓', 'page'], ['BACK', 'list'], ...(view.provider === 'codex' ? [['C', 'compact']] : [])], view.note || '') +
     '</div><script>' + LAYOUT + '</script>';
   return page(html, { width, height, orientation: view.orientation, extraCss: CSS });
 }

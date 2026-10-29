@@ -71,6 +71,20 @@ The list shows up to 20 root chats from the past 24 hours, including completed
 Guardian and internal subagents are hidden. Context and usage limits come from
 Codex data. See [integration details and limitations (Russian)](docs/codex-integration.md).
 
+Press `C` on Sessions or session details to compact the selected **local Codex
+Desktop chat**. An idle chat starts immediately; a working chat or one waiting
+for an answer or approval queues compact until its current turn finishes.
+Repeated presses do not duplicate pending requests. Status appears on the tile
+and detail screen: `COMPACT QUEUED`, `COMPACTING`, then `COMPACT DONE` or
+`COMPACT FAILED`. If the chat has no live owner, open it in Codex; the request
+stays queued. The queue survives daemon restarts. An uncertain result is shown
+as `COMPACT STATUS UNKNOWN` and is observed without resending the command.
+
+Compact uses Codex Desktop's internal local IPC protocol, tested with
+`0.165.0-alpha.1.2`; app updates may require an adapter update. It does not
+resume chats in a separate process. CLI-only and Claude sessions do not support
+this action. Its state is saved in the Git-ignored `dashd/.compact.json`.
+
 ### Claude Code (compatibility)
 
 Run `npm run start:claude`, or set `agent: "claude"` in `.config.json`.
@@ -254,6 +268,7 @@ Use the portrait/landscape buttons in the preview to compare orientations; each 
 | Key | Action |
 |---|---|
 | `S` / `Q` / `U` | Sessions / Queue / Usage |
+| `C` on Sessions or session details | Compact the selected local Codex Desktop chat, or queue it until the chat is free |
 | Page-turn buttons (both sides) | Next / previous screen |
 | Five-way controller | Select a tile: ↑↓ moves one tile and ←→ changes pages in portrait; moves through the grid in landscape |
 | Controller center | Open details for the selected session |

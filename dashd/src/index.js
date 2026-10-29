@@ -25,6 +25,7 @@ import { createClaude } from './claude/index.js';
 import { createCodex } from './codex/index.js';
 import { MOCK_SESSIONS } from './claude/config.js';
 import { log } from './log.js';
+import { canCompactFrame } from './session-actions.js';
 
 const state = {
   orientation: ORIENTATION === 'landscape' ? 'landscape' : 'portrait',
@@ -41,6 +42,10 @@ const renderer = createRenderer({ channel: CHROME_CHANNEL, executablePath: CHROM
 
 function linked() {
   return Date.now() - state.lastPollTs < LINK_ALIVE_MS;
+}
+
+function pendingCompactions() {
+  return Object.values(agent.compactions?.() || {}).some((j) => ['queued', 'running', 'unknown'].includes(j.status));
 }
 
 // A permission request waits for the Kindle only while one is attached; with
@@ -66,7 +71,7 @@ function onAgentEvent(topic) {
   if (ui.screen === 'ambient') {
     // Metadata still polls, but a quiet clock needs neither a Chrome render
     // nor a new frame until the minute changes. Real activity wakes at once.
-    if (ui.syncAmbient({ sessions: agent.state.sessions, asks: agent.asks(), healthy: !agent.status().error })) {
+    if (ui.syncAmbient({ sessions: agent.state.sessions, asks: agent.asks(), healthy: !agent.status().error, pendingWork: pendingCompactions() })) {
       scheduleRender({ full: true, urgent: true });
     }
     return;
@@ -145,6 +150,7 @@ function screen(box) {
     waiting: asks.length,
     note: ui.note(),
     battery: state.battery,
+    compactions: agent.compactions?.() || {},
   };
   switch (ui.screen) {
     case 'ambient':
@@ -165,7 +171,8 @@ function screen(box) {
         ui.leaveDetail();
         return screen(box);
       }
-      return { html: renderDetail({ ...view, session: d, index: i, total: sessions.length, msgPage: ui.msgPage }, box) };
+      return { html: renderDetail({ ...view, session: d, index: i, total: sessions.length, msgPage: ui.msgPage }, box),
+        meta: { screen: 'detail', sessionId: d.id } };
     }
     case 'usage':
       return { html: renderUsage({ ...view, usage: agent.state.usage }, box) };
@@ -180,6 +187,7 @@ function screen(box) {
           details: agent.state.details,
           selected: ui.selectedIndex(sessions),
         }, box),
+        meta: { screen: 'sessions', sessionId: sessions[ui.selectedIndex(sessions)]?.id || null },
       };
   }
 }
@@ -257,6 +265,17 @@ const handler = createHandler({
     }
     const r = ui.act(action, { sessions: agent.state.sessions, asks: agent.asks(), orientation: state.orientation });
     if (r.focus) raiseTerminal(r.focus);
+    if (r.compact) {
+      if (!canCompactFrame(frames.get(v), r.compact)) showNote('SCREEN CHANGED — LOOK AGAIN');
+      else if (!agent.compactSession) showNote('COMPACT UNAVAILABLE FOR THIS AGENT');
+      else {
+        try {
+          agent.compactSession(r.compact);
+          ui.setNote('');
+          scheduleRender({ urgent: true });
+        } catch { showNote('COULD NOT QUEUE COMPACT'); }
+      }
+    }
     if (r.answer) answerAsk(r.answer, v);
     if (r.note) showNote(r.note);
     if (r.changed || ui.screen === 'test') scheduleRender({ full: !!r.full, urgent: true });
@@ -282,6 +301,7 @@ const handler = createHandler({
     selectedId: ui.selectedId,
     waiting: agent.asks().length,
     usage: agent.state.usage,
+    compactions: agent.compactions?.() || {},
     provider: AGENT,
     keys: state.keys,
   }),
@@ -310,7 +330,7 @@ tickMinute();
 let wasLinked = false;
 setInterval(() => {
   const asks = agent.asks();
-  if (ui.syncAmbient({ sessions: agent.state.sessions, asks, healthy: !agent.status().error })) {
+  if (ui.syncAmbient({ sessions: agent.state.sessions, asks, healthy: !agent.status().error, pendingWork: pendingCompactions() })) {
     scheduleRender({ full: true, urgent: true });
   }
   const now = linked();

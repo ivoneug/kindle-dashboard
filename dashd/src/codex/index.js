@@ -11,6 +11,9 @@ import { createRolloutReader, applyRecord, questionFrom } from './rollout.js';
 import { normalizeUsage } from './usage.js';
 import { createTitleIndex, sessionName } from './titles.js';
 import { readPermissionContext } from './permissions.js';
+import { createCompactions } from './compactions.js';
+import { createDesktopControl } from './desktop.js';
+import { fileURLToPath } from 'node:url';
 
 // Only exact, explicitly supported decisions go back to Codex. No decision
 // (Back, timeout, disconnect) means {} — Codex's normal approval UI takes over.
@@ -23,7 +26,8 @@ export function codexDecision(body) {
     : '{}';
 }
 
-export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc = createRpc(), pollMs = CODEX_POLL_MS, home = CODEX_HOME } = {}) {
+export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc = createRpc(), pollMs = CODEX_POLL_MS, home = CODEX_HOME,
+  compactFile = process.env.DASHD_COMPACT_FILE || fileURLToPath(new URL('../../.compact.json', import.meta.url)), compactControl } = {}) {
   const state = { sessions: [], details: {}, usage: null };
   const store = createStore();
   const records = new Map();
@@ -42,6 +46,8 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
     onChange('codex.session.update', d);
   };
   const permissions = createPermissionBridge({ emit, store, shouldHold });
+  const compactions = createCompactions({ file: compactFile, control: compactControl || createDesktopControl({ home }),
+    onChange: () => onChange('codex.compact.update') });
 
   function record(id) {
     if (!records.has(id)) records.set(id, { reader: createRolloutReader(), value: {
@@ -143,6 +149,11 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
     asks: () => [...permissions.list(), ...questions.values()].sort((a, b) => a.createdTs - b.createdTs),
     detail: (id) => store.get(id),
     answerPermission: (id, decision) => permissions.answer(id, decision),
+    compactSession(id) {
+      if (!store.get(id)) throw new Error('Session is no longer available');
+      return compactions.request(id);
+    },
+    compactions: () => compactions.snapshot(),
     releasePermissions: (why) => permissions.releaseAll(why),
     onHook(event, payload, res) {
       const id = payload.session_id;
@@ -196,6 +207,6 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
       resolve(err ? { focused: false, reason: err.message } : { focused: true, app: 'Codex', exact: false }))),
     status: () => ({ provider: 'codex', sessions: store.count(), pendingPermissions: permissions.pendingCount(), questions: questions.size,
       sources: ['codex-app-server', 'codex-rollouts', 'codex-hooks'], error: lastError || null, hooks: lastHookTs > 0, lastHookTs: lastHookTs || null }),
-    stop() { stopped = true; clearTimeout(timer); permissions.releaseAll('shutdown'); rpc.stop(); },
+    stop() { stopped = true; clearTimeout(timer); compactions.stop(); permissions.releaseAll('shutdown'); rpc.stop(); },
   };
 }

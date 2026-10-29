@@ -7,7 +7,7 @@
 // tile gets the heavy frame, and nothing animates.
 
 import { esc, fmtClock, legend, contextMeter, page } from './page.js';
-import { stateLabel, modeLabel, effortLabel, fmtDuration } from './helpers.js';
+import { stateLabel, modeLabel, effortLabel, fmtDuration, compactLabel } from './helpers.js';
 import { frameFor } from './sprites.js';
 import { mascot } from './mascots.js';
 import { renderMarkdownPreview } from './markdown.js';
@@ -109,11 +109,11 @@ function spriteName(s) {
   return 'sleeping-idle';
 }
 
-function tile(s, d, selected, now, provider) {
+function tile(s, d, selected, now, provider, compact) {
   const mode = modeLabel(s.permissionMode);
   const model = (s.model || '').replace(/^claude-/, '');
   const eff = s.state === 'busy' ? effortLabel(s.effort) : null;
-  const spec = [model, eff && eff.toLowerCase()].filter(Boolean).join(' · ');
+  const spec = [compactLabel(compact, now), model, eff && eff.toLowerCase()].filter(Boolean).join(' · ');
   const attention = s.state === 'attention';
   const lamp = s.state === 'idle' && s.ended ? 'ended' : s.state;
   return '<div class="tile state-' + s.state + (selected ? ' selected' : '') + '">' +
@@ -166,7 +166,7 @@ export function renderSessions(view, { width, height }) {
   } else {
     body = '<div class="grid">' +
       view.sessions.slice(first, first + PER_PAGE)
-        .map((s, i) => tile(s, view.details[s.id], first + i === view.selected, now, view.provider)).join('') +
+        .map((s, i) => tile(s, view.details[s.id], first + i === view.selected, now, view.provider, view.compactions?.[s.id])).join('') +
       '</div>';
   }
 
@@ -175,7 +175,7 @@ export function renderSessions(view, { width, height }) {
   const html = '<div class="screen">' +
     sessionsTopbar(view, n) +
     body +
-    legend([['↑↓', 'select'], ['●', 'open'], ['U', 'usage']], meta) +
+    legend([['↑↓', 'select'], ['●', 'open'], ['U', 'usage'], ...(view.provider === 'codex' ? [['C', 'compact']] : [])], meta) +
     '</div>';
   return page(html, { width, height, orientation: view.orientation, extraCss: CSS });
 }

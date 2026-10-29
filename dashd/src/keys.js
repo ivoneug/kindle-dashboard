@@ -6,7 +6,7 @@
 // Codes from M0 discovery on the K3 (kindle-dashboard.md §10). Alt is a
 // modifier and never reaches waitforkey.
 export const KEY_NAMES = {
-  21: 'Y', 49: 'N', 31: 'S', 16: 'Q', 22: 'U', 19: 'R',
+  21: 'Y', 49: 'N', 31: 'S', 16: 'Q', 22: 'U', 19: 'R', 46: 'C',
   158: 'BACK', 102: 'HOME', 139: 'MENU', 14: 'DEL',
   103: 'UP', 108: 'DOWN', 105: 'LEFT', 106: 'RIGHT', 194: 'CENTER',
   104: 'L-NEXT', 193: 'L-PREV', 191: 'R-NEXT', 109: 'R-PREV',
@@ -29,6 +29,7 @@ export const ACTIONS = {
   'L-NEXT': 'screen:next', 'R-NEXT': 'screen:next',
   'L-PREV': 'screen:prev', 'R-PREV': 'screen:prev',
   R: 'refresh',
+  C: 'compact',
   MENU: 'menu',        // the M1 test card, as a diagnostic
 };
 

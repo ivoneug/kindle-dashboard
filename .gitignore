@@ -6,3 +6,5 @@ kindle/dash/test.png
 kindle/dash/offline.png
 kindle/dash/offline/
 .state/
+dashd/.compact.json
+dashd/.compact.json.tmp

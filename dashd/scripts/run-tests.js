@@ -11,6 +11,6 @@ function files(dir) {
 }
 try {
   const r = spawnSync(process.execPath, ['--test', ...files('test')], { stdio: 'inherit',
-    env: { ...process.env, CLAUDE_CONFIG_DIR: temp, CLAUDE_THING_HOLD_MS: '200' } });
+    env: { ...process.env, CLAUDE_CONFIG_DIR: temp, CLAUDE_THING_HOLD_MS: '200', DASHD_COMPACT_FILE: path.join(temp, 'compact.json') } });
   process.exitCode = r.status ?? 1;
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }

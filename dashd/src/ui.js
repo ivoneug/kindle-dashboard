@@ -95,6 +95,8 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
       }
       case 'open':
         return sessions.length ? { changed: false, focus: sessions[selectedIndex(sessions)].id } : { changed: false };
+      case 'compact':
+        return sessions.length ? { changed: false, compact: sessions[selectedIndex(sessions)].id } : { changed: false };
       case 'back':
         return show('sessions');
     }
@@ -176,6 +178,7 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
         return move(ctx.sessions, ctx.orientation, action);
       }
       if (action === 'open') return openDetail(ctx.sessions);
+      if (action === 'compact' && ctx.sessions.length) return { changed: false, compact: ctx.sessions[selectedIndex(ctx.sessions)].id };
     }
     return { changed: false };
   }
@@ -229,9 +232,9 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
     return Date.now() < ui.noteUntil ? ui.note : '';
   }
 
-  function syncAmbient({ sessions = [], asks = [], healthy = true } = {}) {
+  function syncAmbient({ sessions = [], asks = [], healthy = true, pendingWork = false } = {}) {
     const ts = now();
-    const quiet = healthy && !asks.length && !sessions.some((s) => s.state === 'busy' || s.state === 'attention');
+    const quiet = healthy && !pendingWork && !asks.length && !sessions.some((s) => s.state === 'busy' || s.state === 'attention');
     if (!quiet) {
       quietSince = ts;
       if (ui.screen === 'ambient') {
