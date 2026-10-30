@@ -154,7 +154,7 @@ function screen(box) {
   };
   switch (ui.screen) {
     case 'ambient':
-      return { html: renderAmbient({ ...view, sessions: sessions.length }, box) };
+      return { html: renderAmbient({ ...view, sessions: sessions.length, usage: agent.state.usage }, box) };
     case 'queue': {
       const hero = ui.heroOf(asks);
       const armed = !!hero && ui.isArmed(hero.id);

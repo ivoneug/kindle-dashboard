@@ -8,9 +8,10 @@ export const BATTERY_CSS = `
     width:${BATTERY_WIDTH}px;height:${BATTERY_HEIGHT}px;margin-left:auto;
     font:500 22px/1 var(--mono);letter-spacing:0;white-space:nowrap;color:var(--ink)}
   .battery svg{flex:none}.battery .battery-percent{min-width:53px;text-align:right}
+  .battery.compact{width:auto;margin:0;gap:4px}.battery.compact .battery-percent{min-width:0}
 `;
 
-export function renderBattery(battery) {
+export function renderBattery(battery, { compact = false } = {}) {
   const level = Number.isInteger(battery?.level) && battery.level >= 0 && battery.level <= 100 ? battery.level : null;
   const charging = battery?.charging === true;
   const icon = charging
@@ -20,5 +21,5 @@ export function renderBattery(battery) {
       '<path d="M32 9h3v7h-3z" fill="currentColor"/>' +
       (level !== null ? `<rect x="5" y="7.5" width="${(22 * level / 100).toFixed(2)}" height="10" fill="currentColor"/>` : '') + '</svg>';
   const text = (level === null ? '--' : level) + '%';
-  return `<span class="battery${charging ? ' charging' : ''}" aria-label="${charging ? 'Charging' : 'Battery'} ${text}">${icon}<span class="battery-percent">${text}</span></span>`;
+  return `<span class="battery${charging ? ' charging' : ''}${compact ? ' compact' : ''}" aria-label="${charging ? 'Charging' : 'Battery'} ${text}">${icon}<span class="battery-percent">${text}</span></span>`;
 }

@@ -31,7 +31,18 @@ export function fmtClock(ts = Date.now()) {
 
 export function topbarStatus({ linked, battery }) {
   return '<span class="topbar-status"><span class="clock">' + fmtClock() + '</span>' +
-    '<span class="conn' + (linked ? ' ok' : '') + '"></span>' + renderBattery(battery) + '</span>';
+    '<span class="conn' + (linked ? ' ok' : '') + '"></span>' + renderBattery(battery, { compact: true }) + '</span>';
+}
+
+export function weeklyUsage(usage) {
+  const limits = (usage?.limits || []).filter((l) => Number.isFinite(l.used));
+  // Prefer the main Codex bucket or Claude's combined week, never the 5h window
+  // or a model-specific Claude limit. Window metadata survives custom labels.
+  const weekly = limits.find((l) => l.key === 'codex' && l.windowMinutes === 10080) ||
+    limits.find((l) => l.windowMinutes === 10080) ||
+    limits.find((l) => l.key === 'week-all-models' || l.key === 'week');
+  const pct = weekly ? Math.round(Math.max(0, Math.min(1, weekly.used)) * 100) : '--';
+  return '<span class="weekly-usage" aria-label="7-day limit used ' + pct + '%">7D ' + pct + '%</span>';
 }
 
 // Omit battery for the clock-only header; null shows an unknown battery level.

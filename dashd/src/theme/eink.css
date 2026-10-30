@@ -77,8 +77,7 @@ html, body {
 .topbar .conn.ok { background: var(--ink); }
 .topbar-status { display: flex; flex: none; align-items: center; gap: 8px; white-space: nowrap; }
 .topbar-status .conn { flex: none; width: 10px; height: 10px; margin: 0; }
-.topbar-status .battery { width: auto; margin: 0; gap: 4px; }
-.topbar-status .battery-percent { min-width: 0; }
+.weekly-usage { font: 500 22px/1 var(--mono); letter-spacing: 0; white-space: nowrap; }
 
 /* ---- state lamps: shape, not colour (claude-thing's lamps were hued) ----
    busy/attention filled, done ticked, idle hollow, ended dashed. currentColor,
