@@ -10,7 +10,7 @@ The Kindle runs as a thin client: it fetches a ready-to-display PNG from the Mac
 dashd/                Mac: rendering (headless Chrome → 16 shades of gray) + Kindle HTTP API
   src/claude/         claude-thing daemon core (sessions, approvals, usage); see its README
   src/codex/          Codex: app-server, chat history, limits, and command hooks
-  src/screens/        Sessions, session details, Queue, Usage
+  src/screens/        Sessions, session details, Slack, threads, Queue, Usage
   src/theme/          e-ink theme; fonts.css is extracted from claude-thing (npm run fonts)
   src/keys.js         raw key code → action
   scripts/            Claude Code hook installation and asset generators
@@ -109,6 +109,54 @@ Approval request behavior:
 None of these cases automatically denies the request.
 
 `npm run mock` starts `dashd` with fake sessions, an approval request every minute, and a question every 90 seconds. Use it to work on screens without a real Claude session.
+
+## Slack support channel
+
+`Q` opens Slack: four fixed-height message tiles, newest first. The controller
+selects tiles like Sessions; its center opens the full message and all replies
+in chronological order. `↑↓` pages through the thread, `Enter` jumps to its last
+page, `←→` opens adjacent messages, and `Back` returns to the list.
+Selection follows the message when new
+ones arrive. At the end of the loaded list, moving forward fetches older messages.
+Entering Sessions or Slack always opens the first tile and first page, including
+`Back` from details. Pressing `S` or `Q` again on its list also returns to the top.
+
+Messages with new thread replies move to the top by their latest activity and
+show `NEW MESSAGE` / `NEW MESSAGES` at the bottom right of the tile. On Sessions,
+the `Q` keycap turns black while Slack has unread updates. On Slack (including
+thread details), `S` turns black for changed session content while any session
+is working or waiting for input; it stays plain when all sessions are quiet.
+
+Unread markers belong to the dashboard. Initially, the Slack user's channel read
+position seeds them, so messages still unread in Slack are also flagged on Kindle.
+Tokens without that position use the first history load as a quiet baseline.
+After initialization, reads are tracked independently. Local read positions survive
+daemon restarts in the Git-ignored `dashd/.state/slack-updates.json`. A thread is
+marked read after the Kindle displays its final page. List previews and merely
+fetching a thread do not clear it; an older frame cannot clear newer replies.
+
+Create an internal Slack app from [slack-app-manifest.json](slack-app-manifest.json)
+at [Your Apps](https://api.slack.com/apps). It requests **User Token Scopes**
+`channels:history`, `channels:read`, and `users:read`. Install it in your workspace,
+then copy the **User OAuth Token** (`xoxp-…`) from **OAuth & Permissions**.
+
+```bash
+node scripts/slack-setup.mjs --channel C0123456789 --restart
+# Paste the token at the hidden prompt; dashd restarts after verification.
+```
+
+The setup checks channel history and thread access before saving anything. It
+preserves existing dashboard settings and saves the token in the Git-ignored
+`dashd/.slack-token` with mode `0600`. The Kindle receives rendered frames, never
+the Slack token. `DASHD_SLACK_TOKEN` can override the token file for a foreground
+run. Config fields: `slackChannelId`, `slackChannelName`, `slackTokenFile`, and
+`slackPollMs` (default 10000, minimum 5000). No messages are posted or marked read in Slack itself.
+
+The app polls the selected channel and an open thread every 10 seconds, follows
+thread pagination, and respects Slack's `Retry-After` responses. If Slack is
+unavailable, cached messages remain visible with an error label. Without a token,
+`Q` displays a connection prompt. Queue stays in the page-turn cycle and still
+appears automatically for agent approval requests.
 
 ## M0: connecting to the Kindle
 
@@ -267,7 +315,7 @@ Use the portrait/landscape buttons in the preview to compare orientations; each 
 
 | Key | Action |
 |---|---|
-| `S` / `Q` / `U` | Sessions / Queue / Usage |
+| `S` / `Q` / `U` | Sessions / Slack / Usage |
 | `C` on Sessions or session details | Compact the selected local Codex Desktop chat, or queue it until the chat is free |
 | Page-turn buttons (both sides) | Next / previous screen |
 | Five-way controller | Select a tile: ↑↓ moves one tile and ←→ changes pages in portrait; moves through the grid in landscape |

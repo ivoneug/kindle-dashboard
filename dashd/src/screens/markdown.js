@@ -41,8 +41,8 @@ const preview = new Marked({
   },
 });
 
-export function renderMarkdown(text) {
-  return md.parse(String(text || ''));
+export function renderMarkdown(text, { breaks = false } = {}) {
+  return md.parse(String(text || ''), { breaks });
 }
 
 export function renderMarkdownPreview(text) {

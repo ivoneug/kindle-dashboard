@@ -1,0 +1,17 @@
+{
+  "display_information": {
+    "name": "Kindle Dashboard",
+    "description": "Read a support channel and its threads on a Kindle e-ink dashboard",
+    "background_color": "#222222"
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": ["channels:history", "channels:read", "users:read"]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

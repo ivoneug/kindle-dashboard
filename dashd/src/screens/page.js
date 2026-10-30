@@ -58,10 +58,10 @@ export function topbar(title, { count, linked, waiting, battery } = {}) {
       '<span class="conn' + (linked ? ' ok' : '') + '"></span>') + '</div>';
 }
 
-// items: [[keyLabel, text], …]; meta: right-aligned small print.
+// items: [[keyLabel, text, attention?], …]; meta: right-aligned small print.
 export function legend(items, meta = '') {
   return '<div class="legend">' +
-    items.map(([k, t]) => '<span class="item"><span class="key">' + esc(k) + '</span>' + esc(t) + '</span>').join('') +
+    items.map(([k, t, attention]) => '<span class="item"><span class="key' + (attention ? ' attention' : '') + '">' + esc(k) + '</span>' + esc(t) + '</span>').join('') +
     '<span class="spacer"></span>' +
     (meta ? '<span class="meta">' + esc(meta) + '</span>' : '') +
     '</div>';

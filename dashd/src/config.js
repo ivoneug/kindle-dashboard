@@ -66,3 +66,10 @@ if (!Number.isFinite(AMBIENT_AFTER_MS) || AMBIENT_AFTER_MS < 0) throw new Error(
 // there is no separate browser download. An explicit binary wins.
 export const CHROME_CHANNEL = String(pick('DASHD_CHROME_CHANNEL', 'chromeChannel', 'chrome'));
 export const CHROME_PATH = pick('DASHD_CHROME_PATH', 'chromePath', '') || undefined;
+
+export const SLACK_CHANNEL_ID = String(pick('DASHD_SLACK_CHANNEL_ID', 'slackChannelId', ''));
+export const SLACK_CHANNEL_NAME = String(pick('DASHD_SLACK_CHANNEL_NAME', 'slackChannelName', 'twk-support'));
+export const SLACK_TOKEN_FILE = String(pick('DASHD_SLACK_TOKEN_FILE', 'slackTokenFile', path.join(DASHD_ROOT, '.slack-token')));
+export const SLACK_UPDATES_FILE = path.join(DASHD_ROOT, '.state', 'slack-updates.json');
+export const SLACK_POLL_MS = Number(pick('DASHD_SLACK_POLL_MS', 'slackPollMs', 10_000));
+if (!Number.isFinite(SLACK_POLL_MS) || SLACK_POLL_MS < 5000) throw new Error('slackPollMs must be at least 5000');

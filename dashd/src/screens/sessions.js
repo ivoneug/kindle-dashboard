@@ -159,12 +159,11 @@ export function renderSessions(view, { width, height }) {
       '</div>';
   }
 
-  const provider = view.provider ? view.provider.toUpperCase() : '';
-  const meta = view.note || [provider, pages > 1 ? 'PAGE ' + (pageNo + 1) + '/' + pages : ''].filter(Boolean).join(' · ');
+  const meta = view.note || (pages > 1 ? 'PAGE ' + (pageNo + 1) + '/' + pages : '');
   const html = '<div class="screen sessions-screen">' +
     sessionsTopbar(view, n) +
     body +
-    legend([['↑↓', 'select'], ['●', 'open'], ['U', 'usage'], ...(view.provider === 'codex' ? [['C', 'compact']] : [])], meta) +
+    legend([['↑↓', 'select'], ['●', 'open'], ['Q', 'slack', view.slackUnread], ['U', 'usage'], ...(view.provider === 'codex' ? [['C', 'compact']] : [])], meta) +
     '</div>';
   return page(html, { width, height, orientation: view.orientation, extraCss: CSS });
 }

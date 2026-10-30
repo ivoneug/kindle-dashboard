@@ -107,6 +107,10 @@ export function createHandler(app) {
         if (app.onPoll) app.onPoll(local, { address: req.socket.remoteAddress, host: req.socket.localAddress });
         const newEpoch = q.has('epoch') && q.get('epoch') !== app.frames.epoch;
         const since = newEpoch ? 0 : intParam(q, 'since');
+        // The client advances since only after eips succeeds. Merely rendering
+        // or downloading a preview must not clear unread notifications.
+        const shown = !local && q.get('epoch') === app.frames.epoch && app.frames.get(since);
+        if (shown && app.onShown) app.onShown(shown);
         const wait = app.frames.waitForChange(since, app.longPollMs);
         // res, not req: a GET's request side can count as closed before the
         // client is gone.

@@ -1,6 +1,6 @@
 // dashd: renders e-ink frames on the Mac and serves them to the Kindle K3, and
 // runs the selected agent backend (Codex by default) in-process.
-// Screens: Sessions with the session detail, Queue and Usage, plus the M1 test
+// Screens: Sessions and Slack with their details, Queue and Usage, plus the M1 test
 // card behind MENU. Permissions are answered from the Queue (M3). A frame
 // is rendered on key presses, Claude events and once a minute for the clock,
 // and only sent when it differs from the one on screen.
@@ -9,6 +9,7 @@ import {
   AGENT, PORT, USB_HOST, LAN_HOST, DEVICE_TOKEN, USB_BIND_RETRY_MS, PANEL, ORIENTATION, LANDSCAPE_ROTATE,
   FULL_EVERY, KEEP_FRAMES, LONG_POLL_MS, RENDER_DEBOUNCE_MS, MIN_FRAME_INTERVAL_MS, LINK_ALIVE_MS,
   CHROME_CHANNEL, CHROME_PATH, AMBIENT_AFTER_MS,
+  SLACK_CHANNEL_ID, SLACK_CHANNEL_NAME, SLACK_TOKEN_FILE, SLACK_POLL_MS, SLACK_UPDATES_FILE,
 } from './config.js';
 import { createRenderer } from './renderer.js';
 import { createFrameStore } from './frames.js';
@@ -20,12 +21,15 @@ import { renderUsage } from './screens/usage.js';
 import { renderDetail } from './screens/detail.js';
 import { renderQueue } from './screens/queue.js';
 import { renderAmbient } from './screens/ambient.js';
+import { renderSlack, renderSlackDetail } from './screens/slack.js';
+import { createSlack, readSlackToken } from './slack/index.js';
 import { createUi, ARM_MS } from './ui.js';
 import { createClaude } from './claude/index.js';
 import { createCodex } from './codex/index.js';
 import { MOCK_SESSIONS } from './claude/config.js';
 import { log } from './log.js';
 import { canCompactFrame } from './session-actions.js';
+import { createSessionUpdates } from './session-updates.js';
 
 const state = {
   orientation: ORIENTATION === 'landscape' ? 'landscape' : 'portrait',
@@ -39,6 +43,7 @@ const state = {
 const ui = createUi({ ambientAfterMs: AMBIENT_AFTER_MS });
 const frames = createFrameStore({ fullEvery: FULL_EVERY, keep: KEEP_FRAMES });
 const renderer = createRenderer({ channel: CHROME_CHANNEL, executablePath: CHROME_PATH });
+const sessionUpdates = createSessionUpdates();
 
 function linked() {
   return Date.now() - state.lastPollTs < LINK_ALIVE_MS;
@@ -56,6 +61,15 @@ const agent = backend({
   onChange: onAgentEvent,
   shouldHold: () => (AGENT === 'claude' && MOCK_SESSIONS) || linked(),
 });
+const slack = createSlack({ token: readSlackToken(SLACK_TOKEN_FILE), channelId: SLACK_CHANNEL_ID,
+  channelName: SLACK_CHANNEL_NAME, pollMs: SLACK_POLL_MS, updatesFile: SLACK_UPDATES_FILE,
+  onReadStateError() { log('!!', 'Slack read positions could not be saved'); },
+  onChange() { if (['slack', 'slack-detail', 'sessions'].includes(ui.screen)) scheduleRender(); },
+});
+
+function updateSessions() {
+  sessionUpdates.update(agent.state.sessions, agent.state.details, agent.compactions?.() || {});
+}
 
 // A new ask takes the screen (only worth it when someone can see it); the last
 // one answered gives it back.
@@ -121,7 +135,9 @@ async function renderNow() {
     lastLinked = linked();
     const { html, meta } = screen(box);
     const frame = await renderer.render(html, box);
+    if (meta?.slackRead && frame.meta?.page !== frame.meta?.pages - 1) delete meta.slackRead;
     if (ui.screen === 'detail' && frame.meta) ui.setMessagePages(frame.meta);
+    if (ui.screen === 'slack-detail' && meta?.screen === 'slack-detail' && meta.messageId === ui.slackSelectedId && frame.meta) ui.setSlackPages(frame.meta);
     // Claude events fire far more often than anything on screen changes; an
     // identical frame would still cost the Kindle a redraw.
     const cur = frames.current();
@@ -141,6 +157,7 @@ async function renderNow() {
 
 // The frame's HTML, plus what dashd must remember about it.
 function screen(box) {
+  updateSessions();
   const sessions = agent.state.sessions;
   const asks = agent.asks();
   const view = {
@@ -151,8 +168,23 @@ function screen(box) {
     note: ui.note(),
     battery: state.battery,
     compactions: agent.compactions?.() || {},
+    slackUnread: slack.state.unreadCount > 0,
+    sessionsChanged: sessionUpdates.pending,
   };
   switch (ui.screen) {
+    case 'slack':
+      return { html: renderSlack({ ...view, slack: slack.state, selected: ui.slackSelectedIndex(slack.state.messages) }, box) };
+    case 'slack-detail': {
+      const i = slack.state.messages.findIndex((m) => m.id === ui.slackSelectedId);
+      if (i < 0) { ui.leaveSlackDetail(); slack.selectThread(null); return screen(box); }
+      const thread = slack.state.threads[ui.slackSelectedId];
+      const read = thread?.updatedTs && !thread.loading && !thread.error && thread.messages.length ? {
+        id: ui.slackSelectedId, latestTs: thread.messages.at(-1).id,
+        replyCount: thread.messages.filter((m) => m.id !== ui.slackSelectedId).length,
+      } : null;
+      return { html: renderSlackDetail({ ...view, slack: slack.state, message: slack.state.messages[i], index: i, msgPage: ui.slackPage }, box),
+        meta: { screen: 'slack-detail', messageId: ui.slackSelectedId, ...(read ? { slackRead: read } : {}) } };
+    }
     case 'ambient':
       return { html: renderAmbient({ ...view, sessions: sessions.length, usage: agent.state.usage }, box) };
     case 'queue': {
@@ -172,7 +204,7 @@ function screen(box) {
         return screen(box);
       }
       return { html: renderDetail({ ...view, session: d, index: i, total: sessions.length, msgPage: ui.msgPage }, box),
-        meta: { screen: 'detail', sessionId: d.id } };
+        meta: { screen: 'detail', sessionId: d.id, sessionsRevision: sessionUpdates.revision } };
     }
     case 'usage':
       return { html: renderUsage({ ...view, usage: agent.state.usage }, box) };
@@ -187,7 +219,7 @@ function screen(box) {
           details: agent.state.details,
           selected: ui.selectedIndex(sessions),
         }, box),
-        meta: { screen: 'sessions', sessionId: sessions[ui.selectedIndex(sessions)]?.id || null },
+        meta: { screen: 'sessions', sessionId: sessions[ui.selectedIndex(sessions)]?.id || null, sessionsRevision: sessionUpdates.revision },
       };
   }
 }
@@ -239,10 +271,14 @@ const handler = createHandler({
   lanHost: LAN_HOST,
   deviceToken: DEVICE_TOKEN,
   longPollMs: LONG_POLL_MS,
+  onShown(frame) {
+    if (frame.meta?.sessionsRevision && sessionUpdates.acknowledge(frame.meta.sessionsRevision)) scheduleRender();
+    if (frame.meta?.slackRead) slack.acknowledge(frame.meta.slackRead);
+  },
   onBattery(battery) {
     const changed = battery.level !== state.battery?.level || battery.charging !== state.battery?.charging;
     state.battery = { ...battery, updatedTs: Date.now() };
-    if (changed && (ui.screen === 'ambient' || ui.screen === 'sessions')) scheduleRender();
+    if (changed) scheduleRender();
   },
   onPoll(local, peer) {
     if (local) return;
@@ -263,7 +299,11 @@ const handler = createHandler({
       if (r.changed || ui.screen === 'test') scheduleRender({ full: !!r.full, urgent: true });
       return;
     }
-    const r = ui.act(action, { sessions: agent.state.sessions, asks: agent.asks(), orientation: state.orientation });
+    const r = ui.act(action, { sessions: agent.state.sessions, asks: agent.asks(), orientation: state.orientation,
+      slackMessages: slack.state.messages, slackHasMore: slack.state.hasMore });
+    slack.selectThread(ui.screen === 'slack-detail' ? ui.slackSelectedId : null);
+    if (r.slackMore) void slack.loadMore();
+    if (action === 'refresh' && (ui.screen === 'slack' || ui.screen === 'slack-detail')) void slack.poll();
     if (r.focus) raiseTerminal(r.focus);
     if (r.compact) {
       if (!canCompactFrame(frames.get(v), r.compact)) showNote('SCREEN CHANGED — LOOK AGAIN');
@@ -286,6 +326,7 @@ const handler = createHandler({
   },
   status: () => ({
     ...agent.status(), kindleLinked: linked(), frame: frames.version,
+    slack: slack.status(),
     screen: ui.screen,
     battery: state.battery,
     kindleAddress: state.lastPollAddress,
@@ -302,6 +343,9 @@ const handler = createHandler({
     waiting: agent.asks().length,
     usage: agent.state.usage,
     compactions: agent.compactions?.() || {},
+    slack: slack.state,
+    slackSelectedId: ui.slackSelectedId,
+    sessionsChanged: sessionUpdates.pending,
     provider: AGENT,
     keys: state.keys,
   }),
@@ -346,6 +390,7 @@ async function shutdown() {
   log('--', 'shutting down');
   agent.releasePermissions('shutdown');
   agent.stop();
+  slack.stop();
   await server.close();
   await renderer.close();
   process.exit(0);

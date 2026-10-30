@@ -1,6 +1,7 @@
 .DS_Store
 node_modules/
 dashd/.config.json
+dashd/.config.json.tmp
 kindle/dash/network.local.sh
 kindle/dash/test.png
 kindle/dash/offline.png
@@ -8,3 +9,5 @@ kindle/dash/offline/
 .state/
 dashd/.compact.json
 dashd/.compact.json.tmp
+dashd/.slack-token
+dashd/.slack-token.tmp

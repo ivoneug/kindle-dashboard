@@ -17,6 +17,8 @@ test('screen keys switch screens with a full refresh, and do nothing when alread
 test('page turns cycle the screens both ways', () => {
   const ui = createUi();
   ui.act('screen:next', portrait);
+  assert.equal(ui.screen, 'slack');
+  ui.act('screen:next', portrait);
   assert.equal(ui.screen, 'queue');
   ui.act('screen:next', portrait);
   assert.equal(ui.screen, 'usage');
@@ -75,7 +77,7 @@ test('detail: centre raises the window, Back returns to the list', () => {
   assert.equal(ui.screen, 'sessions');
 });
 
-test('detail: left/right walk the sessions, and the list selection follows', () => {
+test('detail: left/right walk the sessions, and Back opens the list from its beginning', () => {
   const ui = createUi();
   ui.act('open', portrait);
   assert.deepEqual(ui.act('left', portrait), { changed: false }, 'already first');
@@ -83,7 +85,60 @@ test('detail: left/right walk the sessions, and the list selection follows', () 
   ui.act('right', portrait);
   assert.equal(ui.selectedId, 's2');
   ui.act('back', portrait);
-  assert.equal(ui.selectedIndex(sessions), 2);
+  assert.equal(ui.selectedIndex(sessions), 0);
+});
+
+test('S and Q always start at the newest tile, including repeated presses on the same screen', () => {
+  for (const orientation of ['portrait', 'landscape']) for (const screen of ['sessions', 'slack']) {
+    const ui = createUi(), ctx = { sessions, slackMessages: sessions, orientation };
+    const selected = () => screen === 'sessions' ? ui.selectedIndex(sessions) : ui.slackSelectedIndex(sessions);
+    ui.act('screen:' + screen, ctx); ui.act('right', ctx); ui.act('down', ctx);
+    assert.ok(selected() > 0);
+    assert.deepEqual(ui.act('screen:' + screen, ctx), { changed: true, full: true });
+    assert.equal(selected(), 0);
+    assert.deepEqual(ui.act('screen:' + screen, ctx), { changed: false });
+    ui.act('down', ctx); ui.act('screen:usage', ctx); ui.act('screen:' + screen, ctx);
+    assert.equal(selected(), 0);
+  }
+});
+
+test('page-turn navigation enters both lists at the beginning', () => {
+  const ui = createUi(), ctx = { ...portrait, slackMessages: sessions };
+  ui.act('right', ctx); ui.act('screen:next', ctx); assert.equal(ui.screen, 'slack');
+  ui.act('right', ctx); ui.act('screen:next', ctx); ui.act('screen:next', ctx); ui.act('screen:next', ctx);
+  assert.equal(ui.screen, 'sessions'); assert.equal(ui.selectedIndex(sessions), 0);
+  ui.act('screen:next', ctx); assert.equal(ui.screen, 'slack'); assert.equal(ui.slackSelectedIndex(sessions), 0);
+});
+
+test('Back from a Slack thread resets both the list position and message page', () => {
+  const ui = createUi(), ctx = { ...portrait, slackMessages: sessions };
+  ui.act('screen:slack', ctx); ui.act('right', ctx); ui.act('open', ctx);
+  ui.setSlackPages({ pages: 5, page: 3 }); ui.act('back', ctx);
+  assert.equal(ui.screen, 'slack'); assert.equal(ui.slackSelectedIndex(sessions), 0); assert.equal(ui.slackPage, 0);
+});
+
+test('return from an automatic Queue starts a list at the beginning while preserving an interrupted thread', () => {
+  for (const screen of ['sessions', 'slack']) {
+    const ui = createUi(), ctx = { ...portrait, slackMessages: sessions };
+    ui.act('screen:' + screen, ctx); ui.act('right', ctx); ui.surfaceQueue(); ui.queueEmptied();
+    assert.equal(ui.screen, screen);
+    assert.equal(screen === 'sessions' ? ui.selectedIndex(sessions) : ui.slackSelectedIndex(sessions), 0);
+  }
+  const ui = createUi(), ctx = { ...portrait, slackMessages: sessions };
+  ui.act('screen:slack', ctx); ui.act('right', ctx); ui.act('open', ctx); ui.setSlackPages({ pages: 5, page: 3 });
+  const id = ui.slackSelectedId; ui.surfaceQueue(); ui.queueEmptied();
+  assert.equal(ui.screen, 'slack-detail'); assert.equal(ui.slackSelectedId, id); assert.equal(ui.slackPage, 3);
+});
+
+test('waking Ambient into a list resets its selection for both user input and new work', () => {
+  for (const screen of ['sessions', 'slack']) for (const automatic of [false, true]) {
+    let ts = 0; const ui = createUi({ now: () => ts }), ctx = { ...portrait, slackMessages: sessions };
+    ui.act('screen:' + screen, ctx); ui.act('right', ctx); ts = 120_000; ui.syncAmbient({});
+    assert.equal(ui.screen, 'ambient');
+    if (automatic) ui.syncAmbient({ sessions: [{ state: 'busy' }] }); else ui.act('wake', ctx);
+    assert.equal(ui.screen, screen);
+    assert.equal(screen === 'sessions' ? ui.selectedIndex(sessions) : ui.slackSelectedIndex(sessions), 0);
+  }
 });
 
 test('detail: up/down page the message within what the render measured', () => {
@@ -111,7 +166,7 @@ test('page turns from the detail move on from Sessions', () => {
   const ui = createUi();
   ui.act('open', portrait);
   ui.act('screen:next', portrait);
-  assert.equal(ui.screen, 'queue');
+  assert.equal(ui.screen, 'slack');
 });
 
 test('MENU toggles the test card', () => {

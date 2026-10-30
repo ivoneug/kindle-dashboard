@@ -23,8 +23,9 @@ export const ACTIONS = {
   BACK: 'back',        // hand the request to the terminal / one level up
   UP: 'up', DOWN: 'down', LEFT: 'left', RIGHT: 'right',
   CENTER: 'open',      // open / confirm; on a session tile, raise its terminal
+  ENTER: 'end',        // jump to the last page of a Slack thread
   S: 'screen:sessions',
-  Q: 'screen:queue',
+  Q: 'screen:slack',
   U: 'screen:usage',
   'L-NEXT': 'screen:next', 'R-NEXT': 'screen:next',
   'L-PREV': 'screen:prev', 'R-PREV': 'screen:prev',

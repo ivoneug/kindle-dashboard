@@ -5,9 +5,9 @@
 
 import { PER_PAGE } from './screens/sessions.js';
 
-// The screens page-turn cycles through. The session detail belongs to
-// Sessions; the test card stays reachable from MENU as a diagnostic.
-export const SCREENS = ['sessions', 'queue', 'usage'];
+// Page turns cycle these screens; each detail belongs to its list.
+// The test card stays reachable from MENU as a diagnostic.
+export const SCREENS = ['sessions', 'slack', 'queue', 'usage'];
 
 // A destructive command needs a second Y, and the second has to come while the
 // "press Y again" frame is up.
@@ -24,6 +24,9 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
     selectedId: null,   // follows the session, not its position, across reorders
     msgPage: 0,         // detail: page of the last message on screen
     msgPages: 1,        // detail: how many there are, as the last render measured
+    slackSelectedId: null,
+    slackPage: 0,
+    slackPages: 1,
     heroId: null,       // queue: the ask the keys act on (default: the oldest)
     armed: null,        // queue: {id, until} after a first Y on a destructive ask
     surfacedFrom: null, // queue: the screen it took over from, to go back to
@@ -36,8 +39,65 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
     return i >= 0 ? i : 0;
   }
 
+  function slackSelectedIndex(messages) {
+    const i = messages.findIndex((m) => m.id === ui.slackSelectedId);
+    return i >= 0 ? i : 0;
+  }
+
+  function slackKey(action, ctx) {
+    const messages = ctx.slackMessages || [], from = slackSelectedIndex(messages);
+    if (ui.screen === 'slack-detail') {
+      if (action === 'back') return show('slack');
+      if (action === 'end') {
+        const to = ui.slackPages - 1;
+        if (to === ui.slackPage) return { changed: false };
+        ui.slackPage = to; return { changed: true, full: false };
+      }
+      if (action === 'up' || action === 'down') {
+        const to = Math.max(0, Math.min(ui.slackPages - 1, ui.slackPage + (action === 'down' ? 1 : -1)));
+        if (to === ui.slackPage) return { changed: false };
+        ui.slackPage = to; return { changed: true, full: false };
+      }
+      if ((action === 'left' || action === 'right') && messages.length) {
+        const to = Math.max(0, Math.min(messages.length - 1, from + (action === 'right' ? 1 : -1)));
+        if (to === from) return { changed: false };
+        ui.slackSelectedId = messages[to].id; ui.slackPage = 0; ui.slackPages = 1;
+        return { changed: true, full: true };
+      }
+      return { changed: false };
+    }
+    if (action === 'back') return show('sessions');
+    if (!messages.length) return { changed: false, slackMore: !!ctx.slackHasMore };
+    if (action === 'open') {
+      ui.slackSelectedId = messages[from].id; ui.slackPage = 0; ui.slackPages = 1;
+      return show('slack-detail');
+    }
+    const grid = ctx.orientation === 'landscape';
+    const step = { up: grid ? -2 : -1, down: grid ? 2 : 1, left: grid ? -1 : -PER_PAGE, right: grid ? 1 : PER_PAGE }[action];
+    if (step == null) return { changed: false };
+    const to = Math.max(0, Math.min(messages.length - 1, from + step));
+    ui.slackSelectedId = messages[to].id;
+    return { changed: to !== from, full: Math.floor(to / PER_PAGE) !== Math.floor(from / PER_PAGE),
+      slackMore: !!ctx.slackHasMore && from + step >= messages.length };
+  }
+
+  function resetList(screen) {
+    if (screen === 'sessions') {
+      const changed = ui.selectedId !== null;
+      ui.selectedId = null; ui.msgPage = 0; ui.msgPages = 1;
+      return changed;
+    }
+    if (screen === 'slack') {
+      const changed = ui.slackSelectedId !== null;
+      ui.slackSelectedId = null; ui.slackPage = 0; ui.slackPages = 1;
+      return changed;
+    }
+    return false;
+  }
+
   function show(screen) {
-    if (ui.screen === screen) return { changed: false };
+    const reset = resetList(screen);
+    if (ui.screen === screen) return reset ? { changed: true, full: true } : { changed: false };
     ui.screen = screen;
     // Going anywhere by hand ends the queue's claim to give the screen back.
     ui.surfacedFrom = null;
@@ -145,12 +205,13 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
     return show(back);
   }
 
-  // ctx: { sessions, asks, orientation }. Returns { changed, full, focus?,
-  // answer?, note? }.
+  // ctx: { sessions, asks, orientation, slackMessages?, slackHasMore? }.
+  // Returns { changed, full, focus?, answer?, compact?, slackMore?, note? }.
   function act(action, ctx) {
     lastInput = now();
     if (ui.screen === 'ambient') {
       ui.screen = ambientFrom || 'sessions';
+      resetList(ui.screen);
       ambientFrom = null;
       // An answer/navigation key first wakes the screen. It cannot act on a
       // permission or focus a window the reader has not seen yet.
@@ -161,16 +222,18 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
     switch (action) {
       case 'screen:sessions': return show('sessions');
       case 'screen:queue': return show('queue');
+      case 'screen:slack': return show('slack');
       case 'screen:usage': return show('usage');
       case 'screen:next':
       case 'screen:prev': {
-        const i = SCREENS.indexOf(ui.screen === 'detail' ? 'sessions' : ui.screen);
+        const i = SCREENS.indexOf(ui.screen === 'detail' ? 'sessions' : ui.screen === 'slack-detail' ? 'slack' : ui.screen);
         const d = action === 'screen:next' ? 1 : -1;
         return show(SCREENS[(Math.max(0, i) + d + SCREENS.length) % SCREENS.length]);
       }
       case 'menu': return show(ui.screen === 'test' ? 'sessions' : 'test');
       case 'refresh': return { changed: true, full: true };
     }
+    if (ui.screen === 'slack' || ui.screen === 'slack-detail') return slackKey(action, ctx);
     if (ui.screen === 'queue') return queueKey(action, ctx.asks || []);
     if (ui.screen === 'detail') return detailKey(action, ctx.sessions);
     if (ui.screen === 'sessions') {
@@ -199,6 +262,7 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
     quietSince = now();
     if (ui.screen !== 'queue' || !ui.surfacedFrom) return false;
     ui.screen = ui.surfacedFrom;
+    resetList(ui.screen);
     ui.surfacedFrom = null;
     return true;
   }
@@ -220,7 +284,7 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
 
   // The session on the detail screen is gone (ended, retired): back to the list.
   function leaveDetail() {
-    if (ui.screen === 'detail') ui.screen = 'sessions';
+    if (ui.screen === 'detail') show('sessions');
   }
 
   function setNote(text, ms = 6000) {
@@ -239,6 +303,7 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
       quietSince = ts;
       if (ui.screen === 'ambient') {
         ui.screen = ambientFrom || 'sessions';
+        resetList(ui.screen);
         ambientFrom = null;
         return true;
       }
@@ -260,6 +325,12 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
     setNote,
     note,
     selectedIndex,
+    slackSelectedIndex,
+    setSlackPages({ pages, page }) {
+      ui.slackPages = Math.max(1, pages);
+      ui.slackPage = Math.max(0, Math.min(ui.slackPages - 1, page));
+    },
+    leaveSlackDetail() { if (ui.screen === 'slack-detail') show('slack'); },
     setMessagePages,
     leaveDetail,
     heroOf,
@@ -271,5 +342,7 @@ export function createUi({ ambientAfterMs = 120_000, now = Date.now } = {}) {
     get screen() { return ui.screen; },
     get selectedId() { return ui.selectedId; },
     get msgPage() { return ui.msgPage; },
+    get slackSelectedId() { return ui.slackSelectedId; },
+    get slackPage() { return ui.slackPage; },
   };
 }

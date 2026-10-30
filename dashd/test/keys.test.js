@@ -6,6 +6,7 @@ test('waitforkey output maps to a key name and its action', () => {
   assert.deepEqual(parseKey('21 1'), { press: true, name: 'Y', action: 'allow' });
   assert.deepEqual(parseKey('49 1'), { press: true, name: 'N', action: 'deny' });
   assert.deepEqual(parseKey('194 1'), { press: true, name: 'CENTER', action: 'open' });
+  assert.deepEqual(parseKey('28 1'), { press: true, name: 'ENTER', action: 'end' });
 });
 
 test('both page-turn pairs move between screens', () => {
