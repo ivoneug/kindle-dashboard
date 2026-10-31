@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createStore } from '../claude/sessions/store.js';
-import { createPermissionBridge } from '../claude/permission-bridge.js';
 import { describeTool } from '../claude/sessions/activity.js';
 import { log } from '../log.js';
 import { CODEX_HOME, CODEX_POLL_MS, CODEX_LIMIT } from './config.js';
@@ -10,24 +9,14 @@ import { createRpc } from './rpc.js';
 import { createRolloutReader, applyRecord, questionFrom } from './rollout.js';
 import { normalizeUsage } from './usage.js';
 import { createTitleIndex, sessionName } from './titles.js';
-import { readPermissionContext } from './permissions.js';
+import { createDesktopPermissions } from './permissions.js';
 import { createCompactions } from './compactions.js';
 import { createDesktopControl } from './desktop.js';
 import { fileURLToPath } from 'node:url';
 
-// Only exact, explicitly supported decisions go back to Codex. No decision
-// (Back, timeout, disconnect) means {} — Codex's normal approval UI takes over.
-export function codexDecision(body) {
-  let parsed;
-  try { parsed = JSON.parse(body); } catch { return '{}'; }
-  const behavior = parsed?.hookSpecificOutput?.decision?.behavior;
-  return ['allow', 'deny'].includes(behavior)
-    ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior } } })
-    : '{}';
-}
-
-export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc = createRpc(), pollMs = CODEX_POLL_MS, home = CODEX_HOME,
-  compactFile = process.env.DASHD_COMPACT_FILE || fileURLToPath(new URL('../../.compact.json', import.meta.url)), compactControl } = {}) {
+export function createCodex({ onChange = () => {}, rpc = createRpc(), pollMs = CODEX_POLL_MS, home = CODEX_HOME,
+  compactFile = process.env.DASHD_COMPACT_FILE || fileURLToPath(new URL('../../.compact.json', import.meta.url)), compactControl,
+  permissionControl = createDesktopControl({ home }) } = {}) {
   const state = { sessions: [], details: {}, usage: null };
   const store = createStore();
   const records = new Map();
@@ -45,7 +34,7 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
     if (d.ended) delete state.details[d.id]; else state.details[d.id] = d;
     onChange('codex.session.update', d);
   };
-  const permissions = createPermissionBridge({ emit, store, shouldHold });
+  const permissions = createDesktopPermissions({ emit, store, control: permissionControl });
   const compactions = createCompactions({ file: compactFile, control: compactControl || createDesktopControl({ home }),
     onChange: () => onChange('codex.compact.update') });
 
@@ -86,8 +75,6 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
       applyRecord(rec.value, o, { onUsage: (limits, ts) => {
         if (ts > usageTs) { state.usage = { ...normalizeUsage({ rateLimits: limits }, ts), stale: Date.now() - ts > 120_000 }; usageTs = ts; }
       } });
-      const event = o.payload?.type;
-      if (o.type === 'event_msg' && ['task_complete', 'turn_aborted'].includes(event)) permissions.cancelSession(id, Date.parse(o.timestamp) || 0);
     });
   }
 
@@ -116,6 +103,7 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
         // grid with hundreds of imported chats and placeholder messages.
         if (!rec.value.native && row.historyMode !== 'paginated' && !rec.hook) continue;
         publish(row.id, rec);
+        void permissions.watch(row.id);
         shown += 1;
       }
       for (const [id, rec] of records) {
@@ -123,7 +111,7 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
         // appears. Rows that disappeared (archive, delete, age or limit) leave
         // after a short grace instead of persisting as stale tiles for a day.
         if (!seen.has(id) && Date.now() - (rec.hook?.ts || rec.value.lastActivityTs || 0) > 30_000) {
-          permissions.cancelSession(id, Date.now()); questions.delete(id);
+          permissions.unwatch(id); questions.delete(id);
           store.remove(id); records.delete(id); delete state.details[id];
         }
       }
@@ -138,7 +126,7 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
       lastError = e.message;
       if (state.usage) state.usage = { ...state.usage, stale: true };
       // Already known chats remain observable while the metadata service is down.
-      for (const [id, rec] of records) { try { readRollout(id, rec, rec.file); publish(id, rec); } catch {} }
+      for (const [id, rec] of records) { try { readRollout(id, rec, rec.file); publish(id, rec); void permissions.watch(id); } catch {} }
     } finally { if (!stopped) timer = setTimeout(poll, pollMs); }
   }
   // Let dashd finish its own initialization before the first event can render.
@@ -154,21 +142,15 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
       return compactions.request(id);
     },
     compactions: () => compactions.snapshot(),
-    releasePermissions: (why) => permissions.releaseAll(why),
+    // Losing the Kindle cannot change requests already visible in Codex.
+    releasePermissions: () => 0,
     onHook(event, payload, res) {
       const id = payload.session_id;
       if (typeof id !== 'string' || !id) { res.writeHead(400); return res.end('{}'); }
       lastHookTs = Date.now();
       if (event === 'PermissionRequest') {
-        const context = readPermissionContext(payload, { home });
-        if (context?.reviewer !== 'user') {
-          // No queue entry, no allow/deny, no ten-minute wait. Codex applies
-          // its own automatic review or normal UI for an unknown context.
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end('{}');
-          log('PB', `permission left to Codex: ${context?.reviewer || 'unknown reviewer'}`);
-          return;
-        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end('{}');
       }
       const rec = record(id);
       rec.value.native = true;
@@ -187,26 +169,17 @@ export function createCodex({ onChange = () => {}, shouldHold = () => false, rpc
       if (event === 'PostToolUse') Object.assign(fields, { currentTool: null, activity: null, waitingForInput: false, question: null });
       if (['Stop', 'Interrupt', 'SessionEnd'].includes(event)) {
         Object.assign(fields, { thinking: false, currentTool: null, activity: null, waitingForInput: false, question: null, stoppedTs: now });
-        permissions.cancelSession(id, now);
       }
-      if (event === 'SessionEnd') { closed.add(id); store.remove(id); delete state.details[id]; questions.delete(id); }
+      if (event === 'SessionEnd') { closed.add(id); permissions.unwatch(id); store.remove(id); delete state.details[id]; questions.delete(id); }
       rec.hook = { ts: now, fields: { ...rec.hook?.fields, ...fields } };
       publish(id, rec);
-      if (event === 'PermissionRequest') {
-        // The shared bridge speaks Claude's envelope; Codex uses the same allow/
-        // deny shape, but does not accept a behavior:"ask" decision.
-        return permissions.onHookRequest(payload, {
-          writeHead: (...a) => res.writeHead(...a),
-          end: (body) => res.end(codexDecision(body)),
-          on: (...a) => res.on(...a),
-        });
-      }
+      if (store.get(id)) void permissions.watch(id);
       res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}');
     },
     focusSession: () => new Promise((resolve) => execFile('open', ['-a', 'Codex'], { timeout: 5000 }, (err) =>
       resolve(err ? { focused: false, reason: err.message } : { focused: true, app: 'Codex', exact: false }))),
     status: () => ({ provider: 'codex', sessions: store.count(), pendingPermissions: permissions.pendingCount(), questions: questions.size,
-      sources: ['codex-app-server', 'codex-rollouts', 'codex-hooks'], error: lastError || null, hooks: lastHookTs > 0, lastHookTs: lastHookTs || null }),
-    stop() { stopped = true; clearTimeout(timer); compactions.stop(); permissions.releaseAll('shutdown'); rpc.stop(); },
+      sources: ['codex-app-server', 'codex-rollouts', 'codex-hooks', 'codex-desktop-approvals'], error: lastError || null, hooks: lastHookTs > 0, lastHookTs: lastHookTs || null }),
+    stop() { stopped = true; clearTimeout(timer); compactions.stop(); permissions.stop(); rpc.stop(); },
   };
 }

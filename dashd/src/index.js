@@ -230,7 +230,7 @@ const DONE = { allow: 'ALLOWED', deny: 'DENIED', ask: 'SENT TO THE MAC' };
 // on (v) showed this very ask — anything else means the screen changed under
 // the finger, and the answer could land on the wrong request. A destructive
 // allow needs a second Y, pressed on the frame that asks for it.
-function answerAsk({ id, decision, destructive }, v) {
+async function answerAsk({ id, decision, destructive }, v) {
   const shown = frames.get(v);
   if (!shown || !shown.meta || shown.meta.askId !== id) {
     log('PB', `key on v${v} ignored: that frame did not show ${id}`);
@@ -244,8 +244,12 @@ function answerAsk({ id, decision, destructive }, v) {
     return;
   }
   ui.disarm();
-  const ok = agent.answerPermission(id, decision);
-  showNote(ok ? DONE[decision] : 'ALREADY ANSWERED');
+  try {
+    const ok = await agent.answerPermission(id, decision);
+    showNote(ok ? DONE[decision] : 'ALREADY ANSWERED');
+  } catch {
+    showNote('CHECK REQUEST ON MAC');
+  }
 }
 
 // A footer note lasts a few seconds; the frame after it expires drops it.

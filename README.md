@@ -61,10 +61,12 @@ If your terminal reports `command not found: codex`, run the CLI bundled with th
 "/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
 ```
 
-Once the hooks are trusted, you can answer approval requests from the Kindle with
-`Y` / `N` / `Back`. Without a connected Kindle or a running `dashd`, Codex uses
-its normal approval interface. `/status` reports `hooks: true` after the first
-event reaches the daemon.
+Codex Desktop approval requests appear on both the Mac and Kindle. Use `Y` / `N`
+to answer the same request, or `Back` to dismiss only the Kindle card. Auto review
+runs in Codex before any human request is mirrored; dashboard hooks never hold it.
+Without a live Desktop owner, approvals remain in their original interface.
+Activity hooks are optional for approvals; `/status` reports `hooks: true` after
+the first hook event arrives.
 
 The list shows up to 20 root chats from the past 24 hours, including completed
 (IDLE) chats. Imported histories appear after their first run in Codex;

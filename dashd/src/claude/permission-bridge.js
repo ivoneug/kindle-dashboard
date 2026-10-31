@@ -17,7 +17,7 @@ import { log } from './log.js';
 // as the fallback against old daemons. Classified HERE, against the full
 // command, because the device only ever sees the first 200 characters — a
 // --force past the truncation was invisible to its regex.
-const DESTRUCTIVE_RE = /\brm\s+-|--force\b|--hard\b|\bDROP\s|\bTRUNCATE\b|\bmkfs|\bdd\s+if=|\bchmod\s+777\b|curl[^|]*\|\s*(ba|z)?sh/i;
+export const DESTRUCTIVE_RE = /\brm\s+-|--force\b|--hard\b|\bDROP\s|\bTRUNCATE\b|\bmkfs|\bdd\s+if=|\bchmod\s+777\b|curl[^|]*\|\s*(ba|z)?sh/i;
 
 export function createPermissionBridge({ emit, store, queue, shouldHold = () => true }) {
   const pending = new Map(); // requestId -> {res, timer, sessionId}

@@ -1,121 +1,167 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { readPermissionContext } from '../../src/codex/permissions.js';
+import { createDesktopPermissions } from '../../src/codex/permissions.js';
+import { createStore } from '../../src/claude/sessions/store.js';
 
-function fixture(t, reviewer = 'auto_review') {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kindle-permission-context-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
-  fs.mkdirSync(path.join(home, 'sessions'));
-  const file = path.join(home, 'sessions/rollout.jsonl');
-  const meta = { type: 'session_meta', payload: { id: 'session' } };
-  const context = { type: 'turn_context', payload: { turn_id: 'turn', approvals_reviewer: reviewer } };
-  fs.writeFileSync(file, JSON.stringify(meta) + '\n' + JSON.stringify(context) + '\n');
-  const hook = { session_id: 'session', turn_id: 'turn', transcript_path: file, hook_event_name: 'PermissionRequest',
-    tool_name: 'Bash', tool_input: { command: 'date' } };
-  return { home, file, hook, meta, context };
+const approval = (id = 12, command = 'date') => ({ id, method: 'item/commandExecution/requestApproval',
+  params: { threadId: 'chat', turnId: 'turn', itemId: 'item', command, reason: 'Check local state' } });
+function fixture(t, requests = [approval()], send) {
+  const store = createStore(); store.touch('chat', { name: 'Test chat' });
+  const state = { id: 'chat', requests, turns: [], threadRuntimeStatus: { type: 'active' } };
+  const events = new EventEmitter(), changes = [], sent = [];
+  let closed = 0;
+  const observer = { state, events, close() { closed++; }, async answerApproval(request, decision) {
+    sent.push({ request, decision }); if (send) await send(request, decision);
+  } };
+  const control = { async openThread() { return observer; } };
+  const permissions = createDesktopPermissions({ control, store, emit: (topic, data) => changes.push({ topic, data }) });
+  t.after(() => permissions.stop());
+  return { permissions, control, state, store, sent, changes, events, update: () => events.emit('state', state), closed: () => closed };
 }
 
-test('reviewer belongs to the exact session and latest turn, not to global config', (t) => {
-  const { home, hook, file } = fixture(t, 'user');
-  fs.writeFileSync(path.join(home, 'config.toml'), 'approvals_reviewer = "auto_review"\n');
-  assert.deepEqual(readPermissionContext(hook, { home }), { reviewer: 'user', turnId: 'turn' });
-  for (const mismatch of [{ session_id: 'other' }, { turn_id: 'new' }, { turn_id: undefined }]) {
-    assert.equal(readPermissionContext({ ...hook, ...mismatch }, { home }), null);
+test('native approvals are mirrored without consuming the app request; host answers remove the card', async (t) => {
+  const f = fixture(t); await f.permissions.watch('chat');
+  const [ask] = f.permissions.list();
+  assert.equal(ask.summary, 'date'); assert.equal(ask.sessionName, 'Test chat');
+  assert.equal(f.store.get('chat').pendingPermission, true);
+  assert.equal(f.state.requests.length, 1); assert.equal(f.sent.length, 0);
+  f.update(); assert.equal(f.permissions.list()[0].id, ask.id);
+  assert.equal(f.changes.filter((e) => e.topic.endsWith('.request')).length, 1);
+  f.state.requests = []; f.update();
+  assert.equal(f.permissions.list().length, 0);
+  assert.equal(f.store.get('chat').pendingPermission, false);
+  assert.equal(await f.permissions.answer(ask.id, 'allow'), false);
+  assert.equal(f.sent.length, 0);
+});
+
+test('Auto activity without a native human request never creates a Kindle approval', async (t) => {
+  const f = fixture(t, []);
+  f.state.latestThreadSettings = { approvalsReviewer: 'user' };
+  f.state.turns = [{ turnId: 'turn', items: [{ type: 'automaticApprovalReview', status: 'inProgress' }] }];
+  await f.permissions.watch('chat');
+  assert.equal(f.permissions.list().length, 0);
+  assert.equal(f.changes.length, 0); assert.equal(f.sent.length, 0);
+});
+
+test('Kindle Y/N answers the native request once, with its exact ID and per-call decision', async (t) => {
+  for (const [input, decision] of [['allow', 'accept'], ['deny', 'decline']]) {
+    let finish;
+    const f = fixture(t, [approval()], () => new Promise((r) => { finish = r; }));
+    await f.permissions.watch('chat');
+    const ask = f.permissions.list()[0];
+    const pending = f.permissions.answer(ask.id, input);
+    assert.equal(await f.permissions.answer(ask.id, input), false);
+    assert.equal(f.permissions.list().length, 0);
+    finish(); assert.equal(await pending, true);
+    assert.deepEqual(f.sent, [{ request: approval(), decision }]);
+    assert.equal(f.state.requests.length, 1, 'only the owner may resolve its request');
+    f.update(); assert.equal(f.permissions.list().length, 0, 'an ack before a state update cannot repeat the answer');
+    f.state.requests = []; f.update(); assert.equal(f.permissions.pendingCount(), 0);
   }
-  fs.appendFileSync(file, JSON.stringify({ type: 'turn_context', payload: { turn_id: 'new', approvals_reviewer: 'auto_review' } }) + '\n');
-  assert.equal(readPermissionContext(hook, { home }), null, 'do not search behind a newer turn');
-  assert.equal(readPermissionContext({ ...hook, turn_id: 'new' }, { home }).reviewer, 'auto_review');
 });
 
-test('missing, partial and unknown contexts leave the request to Codex', (t) => {
-  const { home, hook, file } = fixture(t, 'user');
-  fs.appendFileSync(file, '{"type":"turn_context"');
-  assert.equal(readPermissionContext(hook, { home }), null);
-  for (const data of ['', 'not JSON\n', JSON.stringify({ type: 'turn_context', payload: { turn_id: 'turn' } }) + '\n']) {
-    fs.writeFileSync(file, data);
-    assert.equal(readPermissionContext(hook, { home }), null);
-  }
-  fs.rmSync(file);
-  assert.equal(readPermissionContext(hook, { home }), null);
+test('Back dismisses only the Kindle card and leaves the app request and attention intact', async (t) => {
+  const f = fixture(t); await f.permissions.watch('chat');
+  assert.equal(await f.permissions.answer(f.permissions.list()[0].id, 'ask'), true);
+  f.update(); assert.equal(f.permissions.list().length, 0);
+  assert.equal(f.store.get('chat').pendingPermission, true);
+  assert.equal(f.state.requests.length, 1); assert.equal(f.sent.length, 0);
+  f.state.requests = []; f.update(); assert.equal(f.store.get('chat').pendingPermission, false);
 });
 
-test('permissions switched mid-turn use the latest applied settings, without waiting for a new turn', (t) => {
-  const { home, hook, file } = fixture(t, 'user');
-  const settings = (reviewer) => ({ type: 'event_msg', payload: { type: 'thread_settings_applied',
-    thread_id: hook.session_id, thread_settings: { approvals_reviewer: reviewer } } });
-  for (const reviewer of ['auto_review', 'user', 'auto_review']) {
-    fs.appendFileSync(file, JSON.stringify(settings(reviewer)) + '\n');
-    assert.equal(readPermissionContext(hook, { home }).reviewer, reviewer);
-  }
-  fs.appendFileSync(file, JSON.stringify(settings('future-reviewer')) + '\n');
-  assert.equal(readPermissionContext(hook, { home }), null, 'unknown latest settings cannot reuse a manual context');
+test('mutated, replaced or resolved requests cannot be answered from an old frame', async (t) => {
+  const f = fixture(t); await f.permissions.watch('chat');
+  const ask = f.permissions.list()[0];
+  f.state.requests[0].params.command = 'rm -rf output';
+  assert.equal(await f.permissions.answer(ask.id, 'allow'), false, 'check live state even before its callback');
+  const next = f.permissions.list()[0]; assert.notEqual(next.id, ask.id); assert.equal(next.destructive, true);
+  f.state.requests = []; // no callback yet
+  assert.equal(await f.permissions.answer(next.id, 'allow'), false);
+  assert.equal(f.sent.length, 0);
 });
 
-test('applied settings are scoped to the matching chat and do not override the next turn', (t) => {
-  const { home, hook, file } = fixture(t, 'auto_review');
-  fs.appendFileSync(file, JSON.stringify({ type: 'event_msg', payload: { type: 'thread_settings_applied',
-    thread_id: hook.session_id, thread_settings: { approvals_reviewer: 'user' } } }) + '\n');
-  fs.appendFileSync(file, JSON.stringify({ type: 'turn_context', payload: { turn_id: 'new', approvals_reviewer: 'auto_review' } }) + '\n');
-  assert.equal(readPermissionContext({ ...hook, turn_id: 'new' }, { home }).reviewer, 'auto_review');
-  fs.appendFileSync(file, JSON.stringify({ type: 'event_msg', payload: { type: 'thread_settings_applied',
-    thread_id: 'other-chat', thread_settings: { approvals_reviewer: 'user' } } }) + '\n');
-  assert.equal(readPermissionContext({ ...hook, turn_id: 'new' }, { home }), null);
+test('disconnect and shutdown clear cards without answering, and reconnection invalidates old IDs', async (t) => {
+  const f = fixture(t); await f.permissions.watch('chat'); const old = f.permissions.list()[0].id;
+  f.events.emit('disconnect', new Error('lost'));
+  assert.equal(f.permissions.list().length, 0); assert.equal(f.store.get('chat').pendingPermission, false);
+  await f.permissions.watch('chat'); assert.notEqual(f.permissions.list()[0].id, old);
+  assert.equal(await f.permissions.answer(old, 'allow'), false);
+  f.permissions.stop(); assert.equal(f.permissions.list().length, 0);
+  assert.equal(f.sent.length, 0); assert.equal(f.state.requests.length, 1);
+  assert.equal(f.closed(), 2);
 });
 
-test('context cannot be read from outside the Codex history, including symlinks', (t) => {
-  const { home, hook, file } = fixture(t);
-  const outside = path.join(home, 'outside.jsonl'); fs.renameSync(file, outside);
-  assert.equal(readPermissionContext({ ...hook, transcript_path: outside }, { home }), null);
-  fs.symlinkSync(outside, file);
-  assert.equal(readPermissionContext(hook, { home }), null);
+test('an uncertain send is not retried and remains answerable on the host', async (t) => {
+  const f = fixture(t, [approval()], () => { throw new Error('ack timed out'); });
+  await f.permissions.watch('chat'); const id = f.permissions.list()[0].id;
+  await assert.rejects(f.permissions.answer(id, 'allow'), /timed out/);
+  f.update(); assert.equal(await f.permissions.answer(id, 'allow'), false);
+  assert.equal(f.sent.length, 1); assert.equal(f.state.requests.length, 1);
 });
 
-test('bounded history reads do not reuse a manual context older than the tail', (t) => {
-  const { home, hook, file } = fixture(t, 'user');
-  fs.appendFileSync(file, JSON.stringify({ type: 'response_item', payload: { text: 'x'.repeat(4 * 1024 * 1024) } }) + '\n');
-  assert.equal(readPermissionContext(hook, { home }), null);
+test('unsupported, completed, foreign and underspecified approvals stay in the app', async (t) => {
+  const requests = [
+    { ...approval(), method: 'item/permissions/requestApproval' },
+    { ...approval(), completed: true },
+    { ...approval(), params: { ...approval().params, threadId: 'other' } },
+    { ...approval(), params: { ...approval().params, command: null } },
+    { ...approval(), params: { ...approval().params, availableDecisions: ['acceptForSession', 'decline'] } },
+    { ...approval(), method: 'item/fileChange/requestApproval' },
+  ];
+  const f = fixture(t, requests); await f.permissions.watch('chat');
+  assert.equal(f.permissions.list().length, 0); assert.equal(f.sent.length, 0);
 });
 
-async function runHook(hook, home, port) {
+test('destructive detection uses the full command and file deletion uses the matching turn', async (t) => {
+  const file = { ...approval('file'), method: 'item/fileChange/requestApproval' };
+  const f = fixture(t, [approval(12, 'echo ' + 'x'.repeat(220) + '; rm -rf output'), file]);
+  f.state.turnHistory = { history: { entitiesByKey: { turn: { turnId: 'turn', items: [
+    { id: 'item', type: 'fileChange', changes: [{ path: '/tmp/output', kind: { type: 'delete' } }] },
+  ] } } } };
+  await f.permissions.watch('chat'); const asks = f.permissions.list();
+  assert.equal(asks.length, 2); assert.ok(asks.every((a) => a.destructive));
+  assert.equal(asks[0].summary.length, 200); assert.equal(asks[1].summary, '/tmp/output');
+  await f.permissions.answer(asks[1].id, 'deny'); assert.equal(f.sent[0].request.id, 'file');
+});
+
+test('a stopped observer cannot publish after a delayed connection; a missing owner can be retried', async (t) => {
+  const f = fixture(t); let resolve;
+  const original = f.control.openThread;
+  f.control.openThread = () => new Promise((r) => { resolve = r; });
+  const watching = f.permissions.watch('chat'); f.permissions.stop();
+  resolve(await original()); await watching;
+  assert.equal(f.closed(), 1); assert.equal(f.permissions.list().length, 0);
+  const retry = fixture(t); retry.control.openThread = async () => { throw new Error('no owner'); };
+  await retry.permissions.watch('chat'); assert.equal(retry.permissions.list().length, 0);
+  retry.control.openThread = original; await retry.permissions.watch('chat'); assert.equal(retry.permissions.list().length, 1);
+});
+
+async function runHook(hook, port) {
   const script = fileURLToPath(new URL('../../scripts/codex-hook.js', import.meta.url));
-  const child = spawn(process.execPath, [script, '--port', String(port)], {
-    env: { ...process.env, CODEX_HOME: home }, stdio: ['pipe', 'pipe', 'pipe'],
-  });
+  const child = spawn(process.execPath, [script, '--port', String(port)], { stdio: ['pipe', 'pipe', 'pipe'] });
   let out = '', err = '';
   child.stdout.on('data', (b) => { out += b; }); child.stderr.on('data', (b) => { err += b; });
   const timer = setTimeout(() => child.kill('SIGKILL'), 4000);
   child.stdin.end(JSON.stringify(hook));
   const code = await new Promise((resolve, reject) => { child.on('exit', resolve); child.on('error', reject); });
-  clearTimeout(timer);
-  assert.equal(code, 0, err);
-  return JSON.parse(out);
+  clearTimeout(timer); assert.equal(code, 0, err); return JSON.parse(out);
 }
 
-test('command hook bypasses even an older holding daemon for Auto, but forwards manual requests', async (t) => {
-  const { home, hook, file, meta, context } = fixture(t);
+test('legacy PermissionRequest hook always bypasses an older holding daemon; activity still forwards', async (t) => {
   let calls = 0;
-  const server = http.createServer((req, res) => {
-    calls++; req.resume(); res.end('{"hookSpecificOutput":{"decision":{"behavior":"allow"}}}');
-  });
+  const server = http.createServer((req, res) => { calls++; req.resume(); res.end('{}'); });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => { server.closeAllConnections(); server.close(); });
   const port = server.address().port;
-  assert.deepEqual(await runHook(hook, home, port), {});
-  assert.deepEqual(await runHook({ ...hook, turn_id: 'not-persisted' }, home, port), {});
-  assert.equal(calls, 0, 'Auto does not contact a daemon that might hold it');
-  context.payload.approvals_reviewer = 'user';
-  fs.writeFileSync(file, JSON.stringify(meta) + '\n' + JSON.stringify(context) + '\n');
-  const result = await runHook(hook, home, port);
-  assert.equal(result.hookSpecificOutput.decision.behavior, 'allow');
+  for (const reviewer of ['user', 'auto_review', undefined]) {
+    assert.deepEqual(await runHook({ hook_event_name: 'PermissionRequest', approvals_reviewer: reviewer,
+      session_id: 'chat', turn_id: 'turn', tool_name: 'Bash', tool_input: { command: 'date' } }, port), {});
+  }
+  assert.equal(calls, 0);
+  assert.deepEqual(await runHook({ hook_event_name: 'PreToolUse', session_id: 'chat' }, port), {});
   assert.equal(calls, 1);
-  fs.appendFileSync(file, JSON.stringify({ type: 'event_msg', payload: { type: 'thread_settings_applied',
-    thread_id: hook.session_id, thread_settings: { approvals_reviewer: 'auto_review' } } }) + '\n');
-  assert.deepEqual(await runHook(hook, home, port), {});
-  assert.equal(calls, 1, 'a mid-turn switch to Auto must also bypass the daemon');
 });

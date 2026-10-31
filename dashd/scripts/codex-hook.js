@@ -1,10 +1,7 @@
 #!/usr/bin/env node
-// Codex command hook: stdin JSON → dashd on loopback → stdout JSON. A missing
-// dashboard, invalid response, timeout, Back or disconnected Kindle all return
-// no decision, leaving Codex's own approval flow in charge.
+// Activity hooks: stdin JSON → dashd on loopback. Legacy PermissionRequest
+// registrations return immediately, before contacting even an older daemon.
 import http from 'node:http';
-import { codexDecision } from '../src/codex/index.js';
-import { readPermissionContext } from '../src/codex/permissions.js';
 
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf('--port') + 1]) || 8765;
@@ -16,15 +13,14 @@ for await (const chunk of process.stdin) {
 let payload;
 try { payload = JSON.parse(input); } catch { process.stdout.write('{}\n'); process.exit(0); }
 const permission = payload.hook_event_name === 'PermissionRequest';
-// Also guard here so an already running older daemon cannot hold an Auto
-// request while the service is being upgraded/restarted.
-if (permission && readPermissionContext(payload)?.reviewer !== 'user') {
+// Native approvals must reach Codex's reviewer and app before we observe them.
+if (permission) {
   process.stdout.write('{}\n');
   process.exit(0);
 }
 const body = JSON.stringify(Object.fromEntries(['session_id', 'transcript_path', 'cwd', 'hook_event_name',
   'turn_id', 'tool_use_id', 'tool_name', 'tool_input', 'prompt'].filter((k) => k in payload).map((k) => [k, payload[k]])));
-const response = await new Promise((resolve) => {
+await new Promise((resolve) => {
   let done = false;
   const finish = (s = '{}') => { if (!done) { done = true; clearTimeout(timer); resolve(s); } };
   const req = http.request({ hostname: '127.0.0.1', port, path: '/codex/hook', method: 'POST',
@@ -34,8 +30,8 @@ const response = await new Promise((resolve) => {
     res.on('end', () => finish(res.statusCode === 200 ? text : '{}'));
     res.on('error', () => finish());
   });
-  const timer = setTimeout(() => { req.destroy(); finish(); }, permission ? 596_000 : 1500);
+  const timer = setTimeout(() => { req.destroy(); finish(); }, 1500);
   req.on('error', () => finish());
   req.end(body);
 });
-process.stdout.write((permission ? codexDecision(response) : '{}') + '\n');
+process.stdout.write('{}\n');

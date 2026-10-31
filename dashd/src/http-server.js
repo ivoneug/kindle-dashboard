@@ -7,7 +7,7 @@
 //
 // Agent hooks, loopback only:
 //   POST /hook, /hook/<event>   Claude Code hooks
-//   POST /codex/hook           Codex command hooks; PermissionRequest is held open
+//   POST /codex/hook           Codex activity hooks; approvals stay in Codex
 //   GET /status                 JSON health: sessions, held asks, hooks
 //
 // Development routes, loopback only:

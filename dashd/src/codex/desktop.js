@@ -9,7 +9,8 @@ import { EventEmitter } from 'node:events';
 import { CODEX_HOME } from './config.js';
 
 const MAX_FRAME = 32 * 1024 * 1024;
-const VERSIONS = { initialize: 0, 'thread-owner-discovery': 1, 'thread-follower-compact-thread': 1 };
+const VERSIONS = { initialize: 0, 'thread-owner-discovery': 1, 'thread-follower-compact-thread': 1,
+  'thread-follower-command-approval-decision': 1, 'thread-follower-file-approval-decision': 1 };
 const unsafe = new Set(['__proto__', 'prototype', 'constructor']);
 
 export function applyDesktopPatches(state, patches) {
@@ -136,6 +137,17 @@ export function createDesktopControl({ home = CODEX_HOME, timeoutMs = 5000 } = {
           events.once('state', got); events.once('disconnect', lost); following(true);
         });
         return { get state() { return state; }, events, close,
+          answerApproval: (approval, decision) => {
+            const methods = { 'item/commandExecution/requestApproval': 'thread-follower-command-approval-decision',
+              'item/fileChange/requestApproval': 'thread-follower-file-approval-decision' };
+            const current = state?.requests?.find((r) => r.id === approval.id && r.method === approval.method);
+            if (!Object.hasOwn(methods, approval.method) || !['accept', 'decline'].includes(decision) ||
+                !current || current.completed === true || current.params?.threadId !== conversationId ||
+                JSON.stringify(current) !== JSON.stringify(approval)) {
+              return Promise.reject(new Error('Codex approval is no longer available'));
+            }
+            return request(methods[approval.method], { conversationId, requestId: approval.id, decision }, owner);
+          },
           compact: () => request('thread-follower-compact-thread', { conversationId }, owner) };
       } catch (e) { close(); throw e; }
     },

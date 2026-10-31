@@ -146,6 +146,28 @@ test('desktop adapter uses owner routing, framed UTF-8 and state revisions witho
   send({type:'broadcast',method:'thread-stream-state-changed',sourceClientId:'owner',version:11,params:{hostId:'local',conversationId:'chat',change:{type:'patches',baseRevision:1,revision:2,
     patches:[{op:'replace',path:['threadRuntimeStatus','type'],value:'active'},{op:'add',path:['turns',0],value:compactTurn('inProgress')}]}}});
   await changed; assert.equal(desktopIdle(watch.state), false); assert.equal(desktopTurns(watch.state).length, 1);
+  const command = { id: 42, method: 'item/commandExecution/requestApproval',
+    params: { threadId: 'chat', turnId: 'turn', command: 'date' } };
+  const file = { id: 'file-request', method: 'item/fileChange/requestApproval',
+    params: { threadId: 'chat', turnId: 'turn', itemId: 'file-item' } };
+  const approvals = new Promise(r => watch.events.once('state', r));
+  send({type:'broadcast',method:'thread-stream-state-changed',sourceClientId:'owner',version:11,params:{hostId:'local',conversationId:'chat',change:{type:'patches',baseRevision:2,revision:3,
+    patches:[{op:'replace',path:['requests'],value:[command,file]}]}}});
+  await approvals;
+  await watch.answerApproval(command, 'accept'); await watch.answerApproval(file, 'decline');
+  const replies = received.filter(m => m.method?.endsWith('-approval-decision'));
+  assert.deepEqual(replies.map(m => ({ method:m.method, params:m.params, target:m.targetClientId, version:m.version })), [
+    { method:'thread-follower-command-approval-decision', params:{conversationId:'chat',requestId:42,decision:'accept'},target:'owner',version:1 },
+    { method:'thread-follower-file-approval-decision', params:{conversationId:'chat',requestId:'file-request',decision:'decline'},target:'owner',version:1 },
+  ]);
+  await assert.rejects(watch.answerApproval(command, 'acceptForSession'), /no longer available/);
+  await assert.rejects(watch.answerApproval({ ...command, params:{...command.params,command:'other'} }, 'accept'), /no longer available/);
+  const resolved = new Promise(r => watch.events.once('state', r));
+  send({type:'broadcast',method:'thread-stream-state-changed',sourceClientId:'owner',version:11,params:{hostId:'local',conversationId:'chat',change:{type:'patches',baseRevision:3,revision:4,
+    patches:[{op:'replace',path:['requests'],value:[]}]}}});
+  await resolved;
+  await assert.rejects(watch.answerApproval(command, 'accept'), /no longer available/);
+  assert.equal(received.filter(m => m.method?.endsWith('-approval-decision')).length, 2);
   const lost = new Promise(r => watch.events.once('disconnect', r));
   send({type:'broadcast',method:'thread-stream-state-changed',sourceClientId:'owner',version:11,params:{hostId:'local',conversationId:'chat',change:{type:'patches',baseRevision:0,revision:3,patches:[]}}});
   assert.match((await lost).message, /out of sync/);

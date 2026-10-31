@@ -6,7 +6,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { applyRecord, createRolloutReader } from '../../src/codex/rollout.js';
 import { normalizeUsage } from '../../src/codex/usage.js';
-import { codexDecision, createCodex } from '../../src/codex/index.js';
+import { createCodex } from '../../src/codex/index.js';
 import { sessionName, createTitleIndex } from '../../src/codex/titles.js';
 import { mergeCodexHooks } from '../../scripts/codex-hooks-config.js';
 import { renderDetail } from '../../src/screens/detail.js';
@@ -160,24 +160,22 @@ test('limits accept RPC and rollout schemas, and missing means unavailable', () 
   assert.ok(normalizeUsage({}).error);
 });
 
-test('no decision to Codex is {}, never unsupported behavior:ask', () => {
-  for (const behavior of ['ask', 'timeout', undefined, 'allowAll']) {
-    assert.equal(codexDecision(JSON.stringify({ hookSpecificOutput: { decision: { behavior } } })), '{}');
-  }
-  for (const behavior of ['allow', 'deny']) {
-    assert.equal(JSON.parse(codexDecision(JSON.stringify({ hookSpecificOutput: { decision: { behavior } } }))).hookSpecificOutput.decision.behavior, behavior);
-  }
-});
-
 test('hook merge is idempotent and preserves unrelated handlers in our group', () => {
   const opts = { node: '/a path/node', script: '/repo/codex-hook.js', port: 8765 };
   const original = { description: 'mine', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo original' }] }] } };
   const one = mergeCodexHooks(original, opts);
+  assert.equal(one.hooks.PermissionRequest, undefined);
   assert.deepEqual(mergeCodexHooks(one, opts), one);
   one.hooks.Stop.at(-1).hooks.push({ type: 'command', command: 'echo keep' });
   const removed = mergeCodexHooks(one, { ...opts, remove: true });
   assert.deepEqual(removed.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command)), ['echo original', 'echo keep']);
   assert.equal(original.hooks.Stop.length, 1);
+  const legacy = { hooks: { PermissionRequest: [{ hooks: [
+    { type: 'command', command: 'node codex-hook.js --kindle-dashboard', timeout: 600 },
+    { type: 'command', command: 'echo keep-permission-hook' },
+  ] }] } };
+  const upgraded = mergeCodexHooks(legacy, opts);
+  assert.deepEqual(upgraded.hooks.PermissionRequest, [{ hooks: [{ type: 'command', command: 'echo keep-permission-hook' }] }]);
 });
 
 function response() {
@@ -197,39 +195,14 @@ function permissionFixture(t, reviewer) {
   return { home, hook };
 }
 
-test('real Codex adapter holds and answers allow/deny, Back and disconnect release to host', (t) => {
-  const { home, hook } = permissionFixture(t, 'user');
-  const agent = createCodex({ home, shouldHold: () => true, rpc: { request: async () => ({ data: [] }), stop() {} } });
-  t.after(() => agent.stop());
-  for (const decision of ['allow', 'deny', 'ask']) {
-    const res = response(); agent.onHook('PermissionRequest', hook, res);
-    assert.equal(res.body, undefined);
-    const ask = agent.asks()[0]; assert.ok(ask);
-    assert.equal(agent.answerPermission(ask.id, decision), true);
-    assert.equal(decision === 'ask' ? res.body : JSON.parse(res.body).hookSpecificOutput.decision.behavior, decision === 'ask' ? '{}' : decision);
-    assert.equal(agent.answerPermission(ask.id, 'allow'), false);
-  }
-  const res = response(); agent.onHook('PermissionRequest', hook, res);
-  agent.releasePermissions('unlinked'); assert.equal(res.body, '{}');
-});
-
-test('without Kindle the Codex approval goes to its normal UI immediately', (t) => {
-  const { home, hook } = permissionFixture(t, 'user');
-  const agent = createCodex({ home, shouldHold: () => false, rpc: { request: async () => ({ data: [] }), stop() {} } });
-  t.after(() => agent.stop());
-  const res = response(); agent.onHook('PermissionRequest', hook, res);
-  assert.equal(res.body, '{}'); assert.equal(agent.asks().length, 0);
-});
-
-test('auto-review and unknown reviewers bypass Kindle without a decision or attention event', (t) => {
-  for (const reviewer of ['auto_review', undefined, 'future-reviewer']) {
+test('legacy permission hooks immediately yield to Codex for every reviewer, even with Kindle connected', (t) => {
+  for (const reviewer of ['user', 'auto_review', undefined, 'future-reviewer']) {
     const { home, hook } = permissionFixture(t, reviewer);
     const events = [];
     const agent = createCodex({ home, shouldHold: () => true, onChange: (topic) => events.push(topic),
       rpc: { request: async () => ({ data: [] }), stop() {} } });
     t.after(() => agent.stop());
-    const res = response();
-    agent.onHook('PermissionRequest', hook, res);
+    const res = response(); agent.onHook('PermissionRequest', hook, res);
     assert.equal(res.body, '{}');
     assert.equal(agent.asks().length, 0);
     assert.equal(agent.status().pendingPermissions, 0);
@@ -238,22 +211,25 @@ test('auto-review and unknown reviewers bypass Kindle without a decision or atte
   }
 });
 
-test('switching reviewers between turns does not reuse a previous manual approval context', (t) => {
-  const { home, hook } = permissionFixture(t, 'user');
-  const agent = createCodex({ home, shouldHold: () => true, rpc: { request: async () => ({ data: [] }), stop() {} } });
+test('adapter observes native approvals and keeps them on the host when Kindle disconnects', async (t) => {
+  const events = new EventEmitter();
+  const state = { id: 'chat', requests: [{ id: 42, method: 'item/commandExecution/requestApproval',
+    params: { threadId: 'chat', turnId: 'turn', command: 'date' } }] };
+  const sent = [];
+  const agent = createCodex({ permissionControl: { async openThread() { return { state, events, close() {},
+    async answerApproval(request, decision) { sent.push({ id: request.id, decision }); } }; } },
+    rpc: { request: async () => ({ data: [] }), stop() {} } });
   t.after(() => agent.stop());
-  const manual = response(); agent.onHook('PermissionRequest', hook, manual);
-  agent.answerPermission(agent.asks()[0].id, 'ask');
-  const next = { ...hook, turn_id: 'auto-turn' };
-  // A new turn whose context has not been persisted yet must not use old user.
-  const missing = response(); agent.onHook('PermissionRequest', next, missing);
-  assert.equal(missing.body, '{}');
-  fs.appendFileSync(hook.transcript_path, JSON.stringify(record('turn_context', {
-    turn_id: next.turn_id, approvals_reviewer: 'auto_review', approval_policy: 'on-request',
-  })) + '\n');
-  const automatic = response(); agent.onHook('PermissionRequest', next, automatic);
-  assert.equal(automatic.body, '{}');
-  assert.equal(agent.asks().length, 0);
+  agent.onHook('PreToolUse', { session_id: 'chat', tool_name: 'Bash' }, response());
+  await new Promise((r) => setImmediate(r));
+  assert.equal(agent.asks().length, 1);
+  assert.equal(agent.detail('chat').pendingPermission, true);
+  assert.equal(agent.releasePermissions('unlinked'), 0);
+  assert.equal(agent.asks().length, 1); assert.equal(sent.length, 0);
+  await agent.answerPermission(agent.asks()[0].id, 'allow');
+  assert.deepEqual(sent, [{ id: 42, decision: 'accept' }]);
+  state.requests = []; events.emit('state', state);
+  assert.equal(agent.status().pendingPermissions, 0);
 });
 
 test('Codex questions are visible in Queue and resolved when the tool finishes', (t) => {

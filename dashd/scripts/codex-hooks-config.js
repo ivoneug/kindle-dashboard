@@ -11,9 +11,9 @@ export function mergeCodexHooks(config, { node, script, port, remove = false }) 
   }
   if (!remove) {
     const command = [node, script, '--kindle-dashboard', '--port', String(port)].map(quote).join(' ');
-    for (const event of ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'Interrupt', 'PermissionRequest']) {
+    for (const event of ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'Interrupt']) {
       (next.hooks[event] ||= []).push({ hooks: [{ type: 'command', command,
-        timeout: event === 'PermissionRequest' ? 600 : 3 }] });
+        timeout: 3 }] });
     }
   }
   return next;
