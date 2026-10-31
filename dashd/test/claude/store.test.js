@@ -159,7 +159,7 @@ test('summary stays small: name clamped, only the agreed fields', () => {
   assert.equal(s.name.length, 32);
   assert.equal(store.get('a').name, 'x'.repeat(80), 'detail keeps the full name to identify long-titled chats');
   assert.deepEqual(Object.keys(s).sort(), [
-    'context', 'effort', 'ended', 'id', 'lastActivityTs', 'model', 'name',
+    'context', 'contextTokens', 'contextWindow', 'effort', 'ended', 'id', 'lastActivityTs', 'model', 'name',
     'pendingPermission', 'permissionMode', 'state', 'tokens',
   ]);
   assert.deepEqual(s.tokens, { in: 5, out: 7 });

@@ -7,7 +7,7 @@ import {
   AGENT_ACTIVE_TTL_MS, THINKING_TTL_MS, DETAIL_DEBOUNCE_MS, SNAPSHOT_HEARTBEAT_MS,
   LAST_MESSAGE_CAP,
 } from '../config.js';
-import { contextFraction } from '../context-window.js';
+import { contextFraction, contextWindowFor } from '../context-window.js';
 
 export function createStore() {
   const sessions = new Map(); // id -> internal record
@@ -52,6 +52,8 @@ export function createStore() {
       context: s.contextWindow > 0 && Number.isFinite(s.contextTokens)
         ? Math.max(0, Math.min(1, s.contextTokens / s.contextWindow))
         : contextFraction(s.model, s.contextTokens),
+      contextTokens: Number.isFinite(s.contextTokens) ? s.contextTokens : null,
+      contextWindow: s.contextWindow > 0 ? s.contextWindow : contextWindowFor(s.model),
       pendingPermission: !!s.pendingPermission,
       // Which permission mode the window is in: plan / bypassPermissions /
       // acceptEdits / auto / default. null until something says, and the

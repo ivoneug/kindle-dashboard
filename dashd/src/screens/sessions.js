@@ -123,7 +123,7 @@ function tile(s, d, selected, now, provider, compact) {
     '<div class="tsub">' + subline(s, d, now) + '</div>' +
     '<div class="tfoot">' +
     (spec ? '<div class="tspec">' + esc(spec) + '</div>' : '') +
-    (s.context != null ? contextMeter(s.context) : '') +
+    (s.context != null ? contextMeter(s.context, s) : '') +
     '</div>' +
     mascot(provider, spriteName(s), { frame: frameFor(s.id), size: 64, inverted: attention, muted: s.state === 'idle',
       className: provider === 'codex' ? 'sprite codex-mascot' : 'sprite' }) +

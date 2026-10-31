@@ -67,12 +67,21 @@ export function legend(items, meta = '') {
     '</div>';
 }
 
-export function contextMeter(fraction) {
+function compactTokens(tokens) {
+  if (tokens >= 1_000_000) return Number((tokens / 1_000_000).toFixed(2)) + 'M';
+  if (tokens >= 1_000) return Number((tokens / 1_000).toFixed(1)) + 'k';
+  return String(Math.round(tokens));
+}
+
+export function contextMeter(fraction, { contextTokens, contextWindow } = {}) {
   const pct = Math.max(0, Math.min(1, fraction));
-  const label = '<span>CONTEXT</span><span>' + Math.round(pct * 100) + '%</span>';
+  const amounts = Number.isFinite(contextTokens) && contextTokens >= 0 &&
+    Number.isFinite(contextWindow) && contextWindow > 0
+    ? '<span class="ctxamount">' + compactTokens(contextTokens) + ' / ' + compactTokens(contextWindow) + '</span>' : '';
+  const label = '<span>CONTEXT</span><span>' + Math.round(pct * 100) + '%</span>' + amounts;
   return '<div class="ctxtrack' + (pct >= 0.8 ? ' hot' : '') + '">' +
     '<span class="ctxtext">' + label + '</span>' +
-    '<span class="ctxfill" style="width:' + (pct * 100).toFixed(1) + '%">' +
+    '<span class="ctxfill" style="clip-path:inset(0 ' + ((1 - pct) * 100).toFixed(1) + '% 0 0)">' +
     '<span class="ctxtext">' + label + '</span></span></div>';
 }
 
