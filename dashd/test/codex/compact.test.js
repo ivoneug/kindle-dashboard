@@ -95,6 +95,80 @@ test('a request that cannot be saved never reaches Codex', (t) => {
   assert.throws(() => m.request('chat'), /Cannot save/); assert.equal(opened, 0); assert.deepEqual(m.snapshot(), {});
 });
 
+test('snapshot timeouts stay queued with an accurate reason and recover without duplicate sends', async (t) => {
+  let attempts = 0, calls = 0;
+  const watch = { state: { id: 'chat', threadRuntimeStatus: { type: 'idle' }, requests: [], turns: [] },
+    events: new EventEmitter(), async compact() { calls++; }, close() {} };
+  const m = createCompactions({ retryMs: 10, control: { async openThread() {
+    if (++attempts === 1) throw new Error('Codex desktop snapshot timed out');
+    return watch;
+  } } }); t.after(() => m.stop());
+  m.request('chat'); await flush();
+  assert.equal(m.snapshot().chat.status, 'queued');
+  assert.equal(m.snapshot().chat.reason, 'Waiting for Codex state');
+  await new Promise(r => setTimeout(r, 35));
+  assert.equal(m.snapshot().chat.status, 'running');
+  assert.equal(m.snapshot().chat.reason, undefined); assert.equal(calls, 1);
+});
+
+test('a large fragmented snapshot can outlast RPC timeout and queued compact starts when the chat becomes idle', async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kindle-large-snapshot-'));
+  fs.mkdirSync(path.join(home, 'ipc'), { mode: 0o700 });
+  const sockets = new Set(), timers = new Set(); let peer, compactCalls = 0;
+  const frame = (m) => { const data = Buffer.from(JSON.stringify(m)), result = Buffer.alloc(4 + data.length);
+    result.writeUInt32LE(data.length); data.copy(result, 4); return result; };
+  const stateMessage = (change) => ({ type:'broadcast', method:'thread-stream-state-changed', sourceClientId:'owner',
+    version:11, params:{ hostId:'local', conversationId:'chat', change } });
+  const title = 'История '.repeat(1_500_000); // About 21 MB, like the affected live chat.
+  const server = net.createServer((socket) => {
+    peer = socket; sockets.add(socket); socket.on('close', () => sockets.delete(socket)); let input = Buffer.alloc(0);
+    socket.on('data', chunk => {
+      input = Buffer.concat([input, chunk]);
+      while (input.length >= 4 && input.length >= 4 + input.readUInt32LE(0)) {
+        const length = input.readUInt32LE(0), m = JSON.parse(input.subarray(4, 4 + length)); input = input.subarray(4 + length);
+        if (m.type === 'request') {
+          if (m.method === 'thread-follower-compact-thread') compactCalls++;
+          socket.write(frame({ type:'response', requestId:m.requestId, resultType:'success', handledByClientId:'owner',
+            result:m.method === 'initialize' ? {clientId:'kindle'} : {} }));
+        }
+        if (m.method === 'thread-stream-following-changed' && m.params.following) {
+          const timer = setTimeout(() => {
+            const bytes = frame(stateMessage({ type:'snapshot', revision:1,
+              conversationState:{ id:'chat', title, threadRuntimeStatus:{type:'active'}, requests:[], turns:[] } }));
+            for (let offset = 0; offset < bytes.length; offset += 8191) socket.write(bytes.subarray(offset, offset + 8191));
+          }, 150);
+          timers.add(timer);
+        }
+      }
+    });
+  });
+  await new Promise(r => server.listen(path.join(home, 'ipc', 'ipc.sock'), r));
+  let m;
+  t.after(async () => { m?.stop(); for (const timer of timers) clearTimeout(timer);
+    for (const socket of sockets) socket.destroy(); await new Promise(r => server.close(r));
+    fs.rmSync(home, { recursive:true, force:true }); });
+  let opened;
+  const control = createDesktopControl({home, timeoutMs:100, snapshotTimeoutMs:5000});
+  let ready, failed;
+  const connected = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
+  m = createCompactions({ retryMs:10, control:{ async openThread(id) {
+    try { opened = await control.openThread(id); ready(); return opened; } catch(e) { failed(e); throw e; }
+  } } });
+  m.request('chat'); await connected; await flush();
+  assert.equal(opened.state.title, title); assert.equal(m.snapshot().chat.status, 'queued'); assert.equal(compactCalls, 0);
+  const idle = new Promise(r => opened.events.once('state', r));
+  peer.write(frame(stateMessage({type:'patches',baseRevision:1,revision:2,
+    patches:[{op:'replace',path:['threadRuntimeStatus','type'],value:'idle'}]})));
+  await idle;
+  const deadline = Date.now() + 2000;
+  while (!m.snapshot().chat.accepted && Date.now() < deadline) await new Promise(r => setTimeout(r, 10));
+  assert.equal(m.snapshot().chat.accepted, true); assert.equal(compactCalls, 1);
+  const done = new Promise(r => opened.events.once('state', r));
+  peer.write(frame(stateMessage({type:'patches',baseRevision:2,revision:3,
+    patches:[{op:'add',path:['turns',0],value:compactTurn()}]})));
+  await done; assert.equal(m.snapshot().chat.status, 'done'); assert.equal(compactCalls, 1);
+});
+
 test('C targets the displayed selected session in both screens; Ambient, Queue and stale targets cannot compact', () => {
   assert.equal(parseKey('46 1').action, 'compact'); assert.equal(parseKey('46 0').press, false);
   const ui = createUi(), ctx = { sessions: [{ id: 'a' }, { id: 'b' }], asks: [], orientation: 'portrait' };

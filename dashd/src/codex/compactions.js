@@ -79,7 +79,11 @@ export function createCompactions({ control = createDesktopControl(), file, onCh
     } catch (e) {
       if (!stopped && ACTIVE.has(job.status)) {
         if (/Unsupported|Invalid|Untrusted|out of sync|mismatch/.test(e.message)) finish(job, 'failed', 'Codex desktop protocol is incompatible');
-        else if (job.reason !== 'Open this chat in Codex') { job.reason = 'Open this chat in Codex'; changed(); }
+        else {
+          const reason = /no-client-found|no live owner/.test(e.message) ? 'Open this chat in Codex'
+            : /snapshot timed out/.test(e.message) ? 'Waiting for Codex state' : 'Retrying Codex connection';
+          if (job.reason !== reason) { job.reason = reason; changed(); }
+        }
       }
     } finally { opening.delete(job.id); }
   }

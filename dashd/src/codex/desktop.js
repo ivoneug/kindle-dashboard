@@ -43,7 +43,7 @@ export function desktopIdle(state) {
   return state?.threadRuntimeStatus?.type === 'idle' && Array.isArray(state.requests) && state.requests.length === 0;
 }
 
-export function createDesktopControl({ home = CODEX_HOME, timeoutMs = 5000 } = {}) {
+export function createDesktopControl({ home = CODEX_HOME, timeoutMs = 5000, snapshotTimeoutMs = 30_000 } = {}) {
   return {
     async openThread(conversationId) {
       if (!/^[a-zA-Z0-9_-]{1,128}$/.test(conversationId)) throw new Error('Invalid Codex session ID');
@@ -55,7 +55,9 @@ export function createDesktopControl({ home = CODEX_HOME, timeoutMs = 5000 } = {
       }
       const events = new EventEmitter(), pending = new Map();
       const socket = net.createConnection(pipe);
-      let clientId = 'initializing-client', owner = null, buffer = Buffer.alloc(0);
+      let clientId = 'initializing-client', owner = null;
+      const header = Buffer.alloc(4);
+      let headerBytes = 0, payload = null, payloadBytes = 0;
       let state = null, revision = null, ended = false;
 
       function write(message) {
@@ -109,13 +111,27 @@ export function createDesktopControl({ home = CODEX_HOME, timeoutMs = 5000 } = {
         }
       }
       socket.on('data', (chunk) => {
-        buffer = Buffer.concat([buffer, chunk]);
         try {
-          while (buffer.length >= 4) {
-            const length = buffer.readUInt32LE(0);
-            if (!length || length > MAX_FRAME) throw new Error('Invalid Codex desktop frame');
-            if (buffer.length < length + 4) break;
-            const message = JSON.parse(buffer.subarray(4, length + 4)); buffer = buffer.subarray(length + 4); handle(message);
+          // Large histories arrive in hundreds of chunks. Copy each byte once;
+          // concatenating the entire partial frame on every chunk is quadratic.
+          let offset = 0;
+          while (offset < chunk.length && !ended) {
+            if (!payload) {
+              const count = Math.min(4 - headerBytes, chunk.length - offset);
+              chunk.copy(header, headerBytes, offset, offset + count);
+              headerBytes += count; offset += count;
+              if (headerBytes < 4) continue;
+              const length = header.readUInt32LE(0);
+              if (!length || length > MAX_FRAME) throw new Error('Invalid Codex desktop frame');
+              payload = Buffer.allocUnsafe(length); payloadBytes = 0; headerBytes = 0;
+            }
+            const count = Math.min(payload.length - payloadBytes, chunk.length - offset);
+            chunk.copy(payload, payloadBytes, offset, offset + count);
+            payloadBytes += count; offset += count;
+            if (payloadBytes === payload.length) {
+              const message = JSON.parse(payload); payload = null; payloadBytes = 0;
+              handle(message);
+            }
           }
         } catch (e) { fail(e); }
       });
@@ -133,7 +149,7 @@ export function createDesktopControl({ home = CODEX_HOME, timeoutMs = 5000 } = {
         await new Promise((resolve, reject) => {
           const done = () => { clearTimeout(timer); events.off('state', got); events.off('disconnect', lost); };
           const got = () => { done(); resolve(); }, lost = (e) => { done(); reject(e); };
-          const timer = setTimeout(() => { done(); reject(new Error('Codex desktop snapshot timed out')); }, timeoutMs);
+          const timer = setTimeout(() => { done(); reject(new Error('Codex desktop snapshot timed out')); }, snapshotTimeoutMs);
           events.once('state', got); events.once('disconnect', lost); following(true);
         });
         return { get state() { return state; }, events, close,
