@@ -104,3 +104,54 @@ test('Kindle fetch reads its local override and appends the token to both URL fo
   assert.equal(fs.readFileSync(path.join(dir, 'with-query'), 'utf8'), 'http://192.168.1.247:8765/version?since=0&token=' + token);
   assert.equal(fs.readFileSync(path.join(dir, 'without-query'), 'utf8'), 'http://192.168.1.247:8765/frame.png?token=' + token);
 });
+
+test('changing only DASH_WIFI selects the saved LAN or USB address', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kindle-transport-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'config.sh'), fs.readFileSync(new URL('../../kindle/dash/config.sh', import.meta.url), 'utf8')
+    .replace('DIR=/mnt/us/dash', 'DIR=' + dir));
+  function read(settings) {
+    fs.writeFileSync(path.join(dir, 'network.local.sh'), settings);
+    return spawnSync('sh', ['-c', '. "$1/config.sh"; printf "%s" "$BASE"', 'sh', dir], { encoding: 'utf8' });
+  }
+  const addresses = 'DASH_USB_HOST=192.168.3.1\nDASH_LAN_HOST=192.168.1.247\nDASH_PORT=8766\n';
+  for (const wifi of [1, 0, 1]) {
+    const result = read(addresses + `DASH_WIFI=${wifi}\n`);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, `http://${wifi ? '192.168.1.247' : '192.168.3.1'}:8766`);
+  }
+  // Old generated files used DASH_HOST for the LAN address. The flag must
+  // also be sufficient to return those installations to USB.
+  assert.equal(read('DASH_HOST=192.168.1.247\nDASH_WIFI=0\n').stdout, 'http://192.168.2.1:8765');
+  assert.equal(read('').stdout, 'http://192.168.2.1:8765');
+  for (const settings of ['DASH_WIFI=1\n', 'DASH_WIFI=invalid\n']) {
+    assert.notEqual(read(settings).status, 0);
+  }
+});
+
+test('setup keeps both endpoints and the pairing key when switching transports', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kindle-setup-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  for (const subdir of ['scripts', 'dashd/src', 'kindle/dash']) fs.mkdirSync(path.join(dir, subdir), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}');
+  for (const file of ['scripts/kindle-wifi-setup.mjs', 'dashd/src/network.js']) {
+    fs.copyFileSync(new URL('../../' + file, import.meta.url), path.join(dir, file));
+  }
+  const configPath = path.join(dir, 'dashd/.config.json');
+  fs.writeFileSync(configPath, JSON.stringify({ lanHost: '192.168.1.247', usbHost: '192.168.3.1', deviceToken: token, agent: 'claude' }));
+  for (const args of [['--usb'], ['--host', '192.168.1.247']]) {
+    const result = spawnSync(process.execPath, [path.join(dir, 'scripts/kindle-wifi-setup.mjs'), ...args], {
+      env: { PATH: process.env.PATH, DASHD_CONFIG: configPath }, encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(!result.stdout.includes(token));
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    assert.equal(config.deviceToken, token);
+    assert.equal(config.agent, 'claude');
+    const local = fs.readFileSync(path.join(dir, 'kindle/dash/network.local.sh'), 'utf8');
+    assert.match(local, /DASH_USB_HOST=192\.168\.3\.1\n/);
+    assert.match(local, /DASH_LAN_HOST=192\.168\.1\.247\n/);
+    assert.ok(local.includes(`DASH_WIFI=${args[0] === '--usb' ? 0 : 1}\n`));
+    assert.ok(local.includes(`DASH_TOKEN=${token}\n`));
+  }
+});

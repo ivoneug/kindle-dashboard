@@ -162,7 +162,7 @@ appears automatically for agent approval requests.
 
 ## M0: connecting to the Kindle
 
-**USB network addresses: Kindle `192.168.2.2`, Mac `192.168.2.1`.** These are the K3 USBNetwork defaults; no device-side address changes are needed. The `192.168.1.1/.2` addresses in older guides conflict with this setup's home network, `192.168.1.0/24`. If you change the USB addresses, update `/mnt/us/usbnet/etc/config`, dashd's `usbHost`, and `DASH_HOST` in the Kindle's local settings. In Wi-Fi mode, `DASH_HOST` uses the home network address independently of USBNetwork.
+**USB network addresses: Kindle `192.168.2.2`, Mac `192.168.2.1`.** These are the K3 USBNetwork defaults; no device-side address changes are needed. The `192.168.1.1/.2` addresses in older guides conflict with this setup's home network, `192.168.1.0/24`. If you change the USB addresses, update `/mnt/us/usbnet/etc/config`, dashd's `usbHost`, and `DASH_USB_HOST` in the Kindle's local settings. Wi-Fi uses `DASH_LAN_HOST` independently of USBNetwork.
 
 1. Connect the Kindle over USB as a storage device. If USBNetwork is not installed (no `/Volumes/Kindle/usbnet/`), download `kindle-usbnetwork-0.57.N-k3.zip` from the [MobileRead thread](https://www.mobileread.com/forums/showthread.php?t=88004). Copy the `.bin` for your model to the Kindle's root directory **with a lowercase filename** (`update_usbnetwork_0.57.N_k3w_install.bin`): the old 0.7.N jailbreak checks filenames against a case-sensitive allowlist. Then select Menu → Settings → Menu → Update Your Kindle. The defaults in `usbnet/etc/config` are `KINDLE_IP=192.168.2.2` and `HOST_IP=192.168.2.1`.
 2. Copy the scripts while the Kindle is mounted as storage:
@@ -199,7 +199,7 @@ stay powered on and reachable on the same local network.
    # or --interface en7 if the Mac connects to the router through another interface.
    ```
    This creates matching `dashd/.config.json` and `kindle/dash/network.local.sh`
-   files with the Mac's address and a random 256-bit key. Both files are excluded
+   files with the Mac's Wi-Fi and USB addresses and a random 256-bit key. Both files are excluded
    from Git. Running setup again preserves the key and other daemon settings.
 3. Restart `dashd`, then use the still-connected USB link:
    ```bash
@@ -222,11 +222,18 @@ Hooks, `/status`, the preview, and `/dev/*` are available only over loopback,
 even with a valid key. The token is not printed in logs. For manual configuration,
 use `DASHD_LAN_HOST` and `DASHD_DEVICE_TOKEN`, or `lanHost` / `deviceToken` in `.config.json`.
 
+After initial setup, switch by changing **one flag** in
+`kindle/dash/network.local.sh`: `DASH_WIFI=1` for the local Wi-Fi network,
+`DASH_WIFI=0` for USB. The client selects the address from the saved
+`DASH_LAN_HOST` and `DASH_USB_HOST`; the key stays the same. Then copy the file
+with `./scripts/kindle-deploy.sh` and restart the client using the command in step 3.
+If you edit `/mnt/us/dash/network.local.sh` directly on the Kindle, only the
+client restart is needed. The Mac daemon already listens on both addresses and
+does not need a restart when the flag changes. The Kindle's Wi-Fi profile is kept.
+`node scripts/kindle-wifi-setup.mjs --usb` can also prepare USB settings.
+
 Reserve the Mac's address in your router's DHCP settings. If the address changes,
 run setup again, restart the daemon, and copy the settings to the Kindle over USB.
-To return to sending frames over the cable, run
-`node scripts/kindle-wifi-setup.mjs --usb`, then deploy and restart the client.
-You do not need to remove the Kindle's Wi-Fi profile.
 
 ## Autostart and reconnection (M4)
 

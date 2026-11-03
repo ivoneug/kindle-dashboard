@@ -8,13 +8,26 @@ export PATH
 DIR=/mnt/us/dash
 RUN=/var/tmp/dash            # tmpfs: frame, version, pids, logs
 
-# USB by default. Device-specific Wi-Fi address and shared token are generated
-# by scripts/kindle-wifi-setup.mjs into an untracked local override.
-DASH_HOST=192.168.2.1
+# Keep both addresses: DASH_WIFI alone selects the transport after a restart.
+# Device-specific settings are generated into an untracked local override.
+DASH_USB_HOST=192.168.2.1
+DASH_LAN_HOST=
+DASH_HOST=                 # compatibility with older network.local.sh files
 DASH_PORT=8765
 DASH_WIFI=0
 DASH_TOKEN=
 [ ! -f "$DIR/network.local.sh" ] || . "$DIR/network.local.sh"
+case "$DASH_WIFI" in
+  0) DASH_HOST=$DASH_USB_HOST ;;
+  1)
+    DASH_HOST=${DASH_LAN_HOST:-$DASH_HOST}
+    if [ -z "$DASH_HOST" ]; then
+      echo "Wi-Fi is missing its Mac address — run kindle-wifi-setup.mjs" >&2
+      exit 1
+    fi
+    ;;
+  *) echo "DASH_WIFI must be 0 (USB) or 1 (Wi-Fi)" >&2; exit 1 ;;
+esac
 BASE="http://$DASH_HOST:$DASH_PORT"
 
 # eips: -g draws a PNG with a partial update, -f makes it a full (flashing) one.

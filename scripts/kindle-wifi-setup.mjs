@@ -33,8 +33,10 @@ validateNetwork(config);
 const port = Number(process.env.DASHD_PORT || config.port || 8765);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid dashboard port');
 config.port = port;
-const host = usb ? (process.env.DASHD_USB_HOST || config.usbHost || '192.168.2.1') : lanHost;
-if (!isPrivateIPv4(host)) throw new Error('Device host must be a private IPv4 address');
+const usbHost = process.env.DASHD_USB_HOST || config.usbHost || '192.168.2.1';
+if (!isPrivateIPv4(usbHost)) throw new Error('USB host must be a private IPv4 address');
+config.usbHost = usbHost;
+const host = usb ? usbHost : lanHost;
 
 function writeLocal(file, content) {
   const temp = file + '.tmp-' + process.pid;
@@ -44,6 +46,8 @@ function writeLocal(file, content) {
 writeLocal(configPath, JSON.stringify(config, null, 2) + '\n');
 writeLocal(path.join(root, 'kindle/dash/network.local.sh'),
   '# Generated local settings; contains the dashboard shared secret. Do not commit.\n' +
-  `DASH_HOST=${host}\nDASH_PORT=${port}\nDASH_WIFI=${usb ? 0 : 1}\nDASH_TOKEN=${config.deviceToken}\n`);
+  '# Change only DASH_WIFI: 1 = local Wi-Fi, 0 = USB; then restart the Kindle client.\n' +
+  `DASH_WIFI=${usb ? 0 : 1}\nDASH_USB_HOST=${usbHost}\nDASH_LAN_HOST=${lanHost || ''}\nDASH_PORT=${port}\nDASH_TOKEN=${config.deviceToken}\n`);
 console.log(`Prepared ${usb ? 'USB' : 'Wi-Fi'} → http://${host}:${port} (shared token saved, not printed).`);
 console.log('Restart dashd, then ./scripts/kindle-deploy.sh and restart /mnt/us/dash/start.sh.');
+console.log('After setup, switch with DASH_WIFI=1 (Wi-Fi) or 0 (USB) in network.local.sh; no daemon restart needed.');
