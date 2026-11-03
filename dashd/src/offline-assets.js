@@ -13,9 +13,9 @@ export function batteryAssetName({ level, charging }) {
 }
 
 export function renderBatteryAtlas() {
-  return page(BATTERY_STATES.map(renderBattery).join(''), {
+  return page(BATTERY_STATES.map((battery) => renderBattery(battery, { compact: true })).join(''), {
     width: BATTERY_WIDTH, height: BATTERY_HEIGHT * BATTERY_STATES.length, orientation: 'portrait',
-    extraCss: BATTERY_CSS + '.battery{display:flex;margin:0;}',
+    extraCss: BATTERY_CSS + `.battery.compact{display:flex;width:${BATTERY_WIDTH}px;margin:0;}`,
   });
 }
 
