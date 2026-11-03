@@ -288,6 +288,32 @@ approval request. In the M4 protocol, the client sends `epoch` to `/version`,
 `/frame.png`, and `/key`. The older `/version` format without this parameter
 remains available.
 
+### Dashboard shortcut in the stock library
+
+On the Kindle Keyboard (K3), the shortcut uses [fbdev's Kite launcher](https://www.mobileread.com/forums/showthread.php?t=168270).
+After installing Kite once and deploying the project scripts:
+
+```bash
+./scripts/kindle-ssh.sh 'sh /mnt/us/dash/shortcut.sh install'
+# Remove only the shortcut, keeping the dashboard and Kite:
+./scripts/kindle-ssh.sh 'sh /mnt/us/dash/shortcut.sh remove'
+```
+
+**Dashboard** appears in the library with a PDF label; this is Kite's launcher
+entry. Select and open it with the controller to start the dashboard. `Home`
+returns to the stock UI. After restoring Wi-Fi in Settings, open Dashboard again
+without rebooting. The Mac daemon must be running. Startup log:
+`/var/tmp/dash/shortcut.log`.
+
+The firmware 3.1 device uses the author's `kite.gz` attachment
+(SHA-256: `c1c3c2d6a01a95188c01d71052b6a3438fe7ebefe43580137921513290f920a0`).
+Its installer adds `/sbin/kite`, a separate init service and
+`/mnt/us/kite-uninstall.sh`; the third-party binary is not stored in this repo.
+On first startup, Kite waits for its temporary `kite (delete me).pdf` to be opened
+by the indexer; reading that file over SSH completes this wait during setup.
+Kite also reacts when the indexer opens a shortcut, so the dashboard may start
+once during installation; press `Home` to return to the library.
+
 ## Ambient clock (M4)
 
 After two minutes with no key presses, working sessions, or user requests, the
