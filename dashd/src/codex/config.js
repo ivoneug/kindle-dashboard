@@ -9,7 +9,9 @@ const candidates = (process.env.PATH || '').split(path.delimiter).filter(Boolean
   .map((dir) => path.join(dir, 'codex'));
 if (process.platform === 'darwin') {
   for (const apps of ['/Applications', path.join(os.homedir(), 'Applications')]) {
-    candidates.push(path.join(apps, 'Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'));
+    for (const app of ['Codex.app', 'ChatGPT.app']) {
+      candidates.push(path.join(apps, app, 'Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'));
+    }
   }
 }
 export const CODEX_BIN = process.env.DASHD_CODEX_BIN || candidates.find((file) => {

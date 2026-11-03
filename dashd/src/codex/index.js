@@ -23,7 +23,7 @@ export function createCodex({ onChange = () => {}, rpc = createRpc(), pollMs = C
   const questions = new Map();
   const closed = new Set();
   const titleIndex = createTitleIndex({ home });
-  let stopped = false, timer = null, usageTs = 0, lastError = '', lastHookTs = 0;
+  let stopped = false, timer = null, usageTs = 0, usageReadTs = 0, lastError = '', lastHookTs = 0;
 
   function emit(topic, data) {
     const t = topic.replace(/^claude\./, 'codex.');
@@ -73,7 +73,11 @@ export function createCodex({ onChange = () => {}, rpc = createRpc(), pollMs = C
     rec.file = real;
     rec.reader.read(real, (o) => {
       applyRecord(rec.value, o, { onUsage: (limits, ts) => {
-        if (ts > usageTs) { state.usage = { ...normalizeUsage({ rateLimits: limits }, ts), stale: Date.now() - ts > 120_000 }; usageTs = ts; }
+        if (ts > usageTs) {
+          state.usage = { ...normalizeUsage({ rateLimits: limits }, ts),
+            resetCredits: state.usage?.resetCredits ?? null, stale: Date.now() - ts > 120_000 };
+          usageTs = ts;
+        }
       } });
     });
   }
@@ -116,8 +120,13 @@ export function createCodex({ onChange = () => {}, rpc = createRpc(), pollMs = C
         }
       }
       lastError = '';
-      if (Date.now() - usageTs > 60_000) {
-        try { state.usage = normalizeUsage(await rpc.request('account/rateLimits/read')); usageTs = Date.now(); }
+      // Rollout token counts have no earned-reset data. They must neither
+      // erase it nor postpone the account refresh while chats are active.
+      if (Date.now() - usageReadTs > 60_000) {
+        try {
+          state.usage = normalizeUsage(await rpc.request('account/rateLimits/read'));
+          usageReadTs = usageTs = Date.now();
+        }
         catch (e) { state.usage = state.usage ? { ...state.usage, stale: true } : { limits: [], error: e.message }; }
       }
       onChange('codex.usage.update', state.usage);

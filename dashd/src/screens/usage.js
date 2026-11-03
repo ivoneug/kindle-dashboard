@@ -26,6 +26,19 @@ const CSS = `
 .mood-out .uphrase { display: inline-block; padding: 0 8px; background: var(--ink); color: var(--paper); line-height: 24px; }
 .ubar .usprite { flex-shrink: 0; }
 
+.uresets { margin-top: 4px; padding-top: 12px; border-top: var(--rule); }
+.uresets-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px;
+  font-size: 15px; font-weight: 700; letter-spacing: 0.12em; }
+.uresets-count { font-family: var(--mono); letter-spacing: 0; white-space: nowrap; }
+.ureset-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.landscape .ureset-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ureset-card { padding: 12px; border: var(--rule); display: flex; flex-direction: column; gap: 8px; }
+.ureset-title { font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+.ureset-description { font-size: 14px; line-height: 1.3; overflow-wrap: anywhere; }
+.ureset-expiry, .uresets-more { font-family: var(--mono); font-size: 14px; line-height: 1.4; color: var(--ink-3); }
+.ureset-expiry { margin-top: auto; padding-top: 4px; font-weight: 700; }
+.uresets-more { margin-top: 10px; }
+
 .ubreak { margin-top: 4px; padding-top: 12px; border-top: var(--rule); }
 .uwin { font-family: var(--mono); font-size: 15px; margin-bottom: 10px; }
 .utables { display: flex; gap: 24px; }
@@ -79,14 +92,37 @@ function breakdown(u) {
     '</div>';
 }
 
-// view: { usage, linked, waiting, orientation, note, battery }
+function resetCards(resets, now) {
+  if (!resets || !resets.availableCount) return '';
+  const rows = resets.credits || [];
+  const credits = rows.filter((c) => c.expiresTs == null || c.expiresTs > now);
+  const count = Math.max(0, resets.availableCount - (rows.length - credits.length));
+  if (!count) return '';
+  const cards = credits.map((c) => {
+    const expiry = c.expiresTs == null ? 'No expiry' : 'Expires ' + new Date(c.expiresTs).toLocaleString('en-GB', {
+      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    });
+    return '<div class="ureset-card"><div class="ureset-title">' + esc(c.title) + '</div>' +
+      (c.description ? '<div class="ureset-description">' + esc(c.description) + '</div>' : '') +
+      '<div class="ureset-expiry">' + esc(expiry) + '</div></div>';
+  }).join('');
+  const more = count - credits.length;
+  return '<section class="uresets"><div class="uresets-head"><span>USAGE LIMIT RESETS</span>' +
+    '<span class="uresets-count">' + count + ' available</span></div>' +
+    (cards ? '<div class="ureset-cards">' + cards + '</div>' : '') +
+    (more > 0 ? '<div class="uresets-more">' + (credits.length ? '+' + more + ' more available' : 'Available to use in Codex') + '</div>' : '') +
+    '</section>';
+}
+
+// view: { usage, linked, waiting, orientation, note, battery, now }
 export function renderUsage(view, { width, height }) {
   const u = view.usage;
+  const resets = resetCards(u?.resetCredits, view.now ?? Date.now());
   let body;
-  if (!u || !u.limits || !u.limits.length) {
+  if ((!u || !u.limits || !u.limits.length) && !resets) {
     body = '<div class="empty">' + esc(u && u.error ? String(u.error).toUpperCase() : 'READING USAGE…') + '</div>';
   } else {
-    body = '<div class="usage">' + u.limits.map((l) => bar(l, view.provider || u.provider)).join('') + breakdown(u) + '</div>';
+    body = '<div class="usage">' + (u.limits || []).map((l) => bar(l, view.provider || u.provider)).join('') + resets + breakdown(u) + '</div>';
   }
   const meta = view.note || (u ? (u.updatedLabel || '') + (u.stale ? ' · stale' : '') : '');
   const html = '<div class="screen">' +

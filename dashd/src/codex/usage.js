@@ -17,7 +17,16 @@ export function normalizeUsage(result, now = Date.now()) {
         detail: reset ? 'resets ' + new Date(reset * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '' });
     }
   }
-  return { provider: 'codex', limits, updatedTs: now, updatedLabel: 'Codex · updated ' +
+  const resets = result?.rateLimitResetCredits;
+  const resetCredits = resets ? {
+    availableCount: resets.availableCount,
+    // Details can be unavailable or capped independently of the total count.
+    credits: Array.isArray(resets.credits) ? resets.credits.filter((c) => c.status === 'available').map((c) => ({
+      id: c.id, title: c.title || 'Usage limit reset', description: c.description || '',
+      expiresTs: c.expiresAt == null ? null : c.expiresAt * 1000,
+    })) : [],
+  } : null;
+  return { provider: 'codex', limits, resetCredits, updatedTs: now, updatedLabel: 'Codex · updated ' +
     new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     stale: false, ...(limits.length ? {} : { error: 'Codex usage is not available for this account' }) };
 }
