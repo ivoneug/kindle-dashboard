@@ -276,6 +276,10 @@ to enable autostart again. If USB storage is connected during boot, startup
 waits up to four minutes for userstore to return to the device. You can still
 start it manually with `sh /mnt/us/dash/start.sh`. Boot log: `/var/tmp/dash/boot.log`.
 
+The stock Java interface is stopped while the dashboard runs. This frees memory
+and avoids leaving a frozen process connected to D-Bus for days. `Home` starts
+the interface again; wait for the library to finish loading.
+
 The client limits the duration of every network request. If Wi-Fi drops, the Mac
 sleeps, or the daemon is unavailable, it shows a local **NO CONNECTION** screen,
 stops sending key presses, and retries after 2, 4, 8, then 15 seconds. Wi-Fi uses

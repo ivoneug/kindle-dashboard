@@ -39,7 +39,12 @@ if [ "$DASH_WIFI" = 1 ]; then
 fi
 
 case "$UI_MODE" in
-  stop) /etc/init.d/framework stop ;;
+  stop)
+    # An older dashboard run may have left Java frozen. Let it handle TERM
+    # before the framework service waits for it to finish.
+    killall -CONT cvm 2>/dev/null
+    /etc/init.d/framework stop
+    ;;
   *)    killall -STOP cvm 2>/dev/null ;;
 esac
 eips -c >/dev/null 2>&1

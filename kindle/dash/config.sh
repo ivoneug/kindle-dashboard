@@ -39,11 +39,10 @@ BASE="http://$DASH_HOST:$DASH_PORT"
 EIPS_FULL="-f"
 EIPS_PARTIAL=""
 
-# Keeping the stock UI off the screen: "freeze" (killall -STOP cvm) or
-# "stop" (/etc/init.d/framework stop). Freeze is enough on the K3: keys still
-# reach waitforkey, and once resumed the UI repaints itself and does not
-# replay the presses it missed.
-UI_MODE=freeze
+# Stop the stock UI while the dashboard is active. A frozen cvm remains
+# connected to D-Bus but cannot consume messages during long dashboard runs.
+# "freeze" is still available for short diagnostic sessions.
+UI_MODE=stop
 
 # Raw waitforkey output of the Home key. Handled on the Kindle itself, so the
 # device can always be taken back even with the Mac gone.
