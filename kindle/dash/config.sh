@@ -5,6 +5,11 @@
 PATH=/usr/sbin:/sbin:/usr/bin:/bin
 export PATH
 
+# K3 LIPC tools use this limit for their callback thread's stack. The default
+# 8 MiB reservation can fail under memory pressure, breaking wake/battery reads
+# and dashboard startup. Keep a 1 MiB soft limit; leave the hard limit intact.
+ulimit -S -s 1024 2>/dev/null || :
+
 DIR=/mnt/us/dash
 RUN=/var/tmp/dash            # tmpfs: frame, version, pids, logs
 
