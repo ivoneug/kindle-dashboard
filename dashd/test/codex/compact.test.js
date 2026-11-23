@@ -111,14 +111,14 @@ test('snapshot timeouts stay queued with an accurate reason and recover without 
   assert.equal(m.snapshot().chat.reason, undefined); assert.equal(calls, 1);
 });
 
-test('a large fragmented snapshot can outlast RPC timeout and queued compact starts when the chat becomes idle', async (t) => {
+test('a large version 13 snapshot can outlast RPC timeout and queued compact starts when the chat becomes idle', async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kindle-large-snapshot-'));
   fs.mkdirSync(path.join(home, 'ipc'), { mode: 0o700 });
   const sockets = new Set(), timers = new Set(); let peer, compactCalls = 0;
   const frame = (m) => { const data = Buffer.from(JSON.stringify(m)), result = Buffer.alloc(4 + data.length);
     result.writeUInt32LE(data.length); data.copy(result, 4); return result; };
   const stateMessage = (change) => ({ type:'broadcast', method:'thread-stream-state-changed', sourceClientId:'owner',
-    version:11, params:{ hostId:'local', conversationId:'chat', change } });
+    version:13, params:{ hostId:'local', conversationId:'chat', change } });
   const title = 'История '.repeat(1_500_000); // About 21 MB, like the affected live chat.
   const server = net.createServer((socket) => {
     peer = socket; sockets.add(socket); socket.on('close', () => sockets.delete(socket)); let input = Buffer.alloc(0);
@@ -134,7 +134,8 @@ test('a large fragmented snapshot can outlast RPC timeout and queued compact sta
         if (m.method === 'thread-stream-following-changed' && m.params.following) {
           const timer = setTimeout(() => {
             const bytes = frame(stateMessage({ type:'snapshot', revision:1,
-              conversationState:{ id:'chat', title, threadRuntimeStatus:{type:'active'}, requests:[], turns:[] } }));
+              conversationState:{ id:'chat', title, threadRuntimeStatus:{type:'active'}, requests:[], turns:[],
+                turnHistory:{ kind:'canonical', history:{ entitiesByKey:{} } } } }));
             for (let offset = 0; offset < bytes.length; offset += 8191) socket.write(bytes.subarray(offset, offset + 8191));
           }, 150);
           timers.add(timer);
@@ -165,7 +166,7 @@ test('a large fragmented snapshot can outlast RPC timeout and queued compact sta
   assert.equal(m.snapshot().chat.accepted, true); assert.equal(compactCalls, 1);
   const done = new Promise(r => opened.events.once('state', r));
   peer.write(frame(stateMessage({type:'patches',baseRevision:2,revision:3,
-    patches:[{op:'add',path:['turns',0],value:compactTurn()}]})));
+    patches:[{op:'add',path:['turnHistory','history','entitiesByKey','turn:compact-turn'],value:compactTurn()}]})));
   await done; assert.equal(m.snapshot().chat.status, 'done'); assert.equal(compactCalls, 1);
 });
 

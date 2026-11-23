@@ -1,5 +1,4 @@
-// Codex Desktop's local coordination socket. This is a versioned internal
-// protocol (tested with 0.165.0-alpha.1.2), separate from app-server's socket.
+// Codex Desktop's versioned local coordination socket, separate from app-server.
 // We register as a follower, never resume a thread or claim ownership of it.
 import net from 'node:net';
 import fs from 'node:fs';
@@ -9,6 +8,7 @@ import { EventEmitter } from 'node:events';
 import { CODEX_HOME } from './config.js';
 
 const MAX_FRAME = 32 * 1024 * 1024;
+const STATE_VERSIONS = new Set([11, 13]);
 const VERSIONS = { initialize: 0, 'thread-owner-discovery': 1, 'thread-follower-compact-thread': 1,
   'thread-follower-command-approval-decision': 1, 'thread-follower-file-approval-decision': 1 };
 const unsafe = new Set(['__proto__', 'prototype', 'constructor']);
@@ -101,7 +101,7 @@ export function createDesktopControl({ home = CODEX_HOME, timeoutMs = 5000, snap
         } else if (m.type === 'broadcast' && m.method === 'client-status-changed' && m.params?.clientId === owner && m.params.status === 'disconnected') {
           fail(new Error('Codex session owner disconnected'));
         } else if (m.type === 'broadcast' && m.method === 'thread-stream-state-changed' && m.sourceClientId === owner && m.params?.conversationId === conversationId) {
-          if (m.version !== 11 || m.params.hostId !== 'local') throw new Error('Unsupported Codex desktop state version');
+          if (!STATE_VERSIONS.has(m.version) || m.params.hostId !== 'local') throw new Error('Unsupported Codex desktop state version');
           const change = m.params.change;
           if (change.type === 'snapshot') state = change.conversationState;
           else if (change.type === 'patches' && state && revision === change.baseRevision) state = applyDesktopPatches(state, change.patches);
